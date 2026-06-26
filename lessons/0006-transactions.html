@@ -1,0 +1,122 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Leçon 5 — Les transactions</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head><body>
+<div class="kicker">Leçon 5 · Base de données · ~7 min</div>
+<h1>Les transactions</h1>
+<p><i>Écrire en base, c'est « tout ou rien ». Voici l'interrupteur.</i></p>
+
+<p>Tu connais les transactions (ACID). En L4G, trois mots les pilotent, et il y a
+<b>une</b> règle X3 qui surprend les débutants. On voit les deux.</p>
+
+<h2>Les trois mots</h2>
+<pre><code>Trbegin [YYNV2]                              # j'ouvre : tout ce qui suit est en attente
+Update [YYNV2] Where [YYNV2]NAVETTE=[L]NAVETTE With [YYNV2]VALFLG=2
+Commit                                       # je valide : tout est écrit d'un coup</code></pre>
+
+<ul>
+<li><code>Trbegin [TABLE]</code> — démarre, et <b>verrouille</b> la/les tables listées.</li>
+<li><code>Commit</code> — persiste tout et <b>libère</b> les verrous.</li>
+<li><code>Rollback</code> — annule tout depuis le <code>Trbegin</code>, libère aussi.</li>
+</ul>
+
+<div class="note metier">
+Valider une navette = passer <code>VALFLG</code> à 2 (validée). C'est exactement ce
+bloc de YNAVETTE. La transaction garantit qu'on ne se retrouve <b>jamais</b> avec une
+navette à moitié validée : soit le statut bascule entièrement, soit rien.
+</div>
+
+<h2>La règle qui surprend : un seul niveau</h2>
+<p>Le moteur X3 ne gère <b>qu'une transaction à la fois</b>. Pas d'imbrication. Si ton
+subprog fait <code>Trbegin</code> alors qu'une transaction tourne déjà (lancée par
+l'appelant), c'est l'erreur.</p>
+
+<p>D'où l'idiome <code>If adxlog</code>. La variable système <code>[S]adxlog</code> vaut
+non-zéro <b>si une transaction est déjà en cours</b> :</p>
+
+<pre><code>Local Integer IF_TRANS
+If adxlog
+    Trbegin [MATABLE]      # personne n'avait ouvert -> j'ouvre, je suis le patron
+    IF_TRANS = 0
+Else
+    IF_TRANS = 1           # l'appelant a déjà ouvert -> je ne touche pas
+Endif
+
+# ... écritures ...
+
+If IF_TRANS = 0 : Commit : Endif   # je ne commit QUE si c'est moi qui ai ouvert</code></pre>
+
+<p>Idée : un subprog réutilisable ne doit pas casser la transaction de celui qui
+l'appelle. Il n'ouvre/ferme que s'il est le propriétaire.</p>
+
+<div class="note piege">
+<b>Jamais de temps long dans une transaction.</b> Pas de question utilisateur
+(<code>OUINON</code>), pas de gros calcul, pas d'appel distant entre <code>Trbegin</code>
+et <code>Commit</code> : les verrous tiennent tout ce temps → blocages et deadlocks.
+C'est pour ça que YNAVETTE pose la question <b>avant</b> (<code>$EXEBOUT</code>), puis
+ne transactionne qu'à la toute fin de <code>VALIDE_NAVETTE</code>.
+</div>
+
+<h2>Le squelette sûr d'une écriture</h2>
+<pre><code>Trbegin [T]
+Readlock [T]KEY0 = [L]K        # lit ET verrouille la ligne
+If fstat : Rollback : End : Endif   # (leçon 3 : on teste toujours)
+[F:T]CHAMP = nouvelle_valeur
+Rewrite [T]
+If fstat : Rollback : End : Endif
+Commit</code></pre>
+<p>Chaque chemin d'échec fait <code>Rollback</code> : on ne laisse jamais une
+transaction ouverte ni un verrou pendant. Op → test → rollback si KO.</p>
+
+<h2>Teste-toi</h2>
+
+<div class="quiz" data-answer="1">
+<div class="q">À quoi sert <code>Rollback</code> ?</div>
+<button data-fb="Non — ça, c'est Commit.">Écrire les changements en base</button>
+<button data-fb="Exact. Annule tout depuis Trbegin et libère les verrous.">Annuler tout depuis Trbegin</button>
+<button data-fb="Non — Trbegin ouvre, il n'annule rien.">Démarrer la transaction</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+<div class="q"><code>[S]adxlog</code> non-zéro veut dire :</div>
+<button data-fb="Non — c'est fstat qui parle de la dernière lecture.">La dernière lecture a échoué</button>
+<button data-fb="Non — l'utilisateur n'a rien à voir ici.">L'utilisateur a annulé</button>
+<button data-fb="Exact. Une transaction est déjà en cours -> ne pas refaire Trbegin.">Une transaction est déjà ouverte</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+<div class="q">Pourquoi <code>OUINON</code> est appelé AVANT la transaction, pas dedans ?</div>
+<button data-fb="Exact. Une attente utilisateur dans une transaction tient les verrous -> deadlocks.">Pour ne pas tenir les verrous pendant l'attente</button>
+<button data-fb="Non — l'ordre n'a rien à voir avec l'affichage.">Pour rafraîchir l'écran d'abord</button>
+<button data-fb="Non — fstat ne dépend pas de la position de OUINON.">Pour que fstat soit correct</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+<div class="q"><b>Rappel</b> : <code>OK = 0</code> vs <code>fstat = 0</code> ?</div>
+<button data-fb="Non — c'est inversé.">Les deux veulent dire « succès »</button>
+<button data-fb="Exact. fstat=0 = succès (moteur→toi) ; OK=0 = bloque l'action (toi→moteur).">fstat=0 succès, OK=0 bloque</button>
+<button data-fb="Non — ce sont deux variables distinctes, pas synonymes.">C'est la même variable</button>
+<div class="fb"></div>
+</div>
+
+<hr>
+<h3>À lire (source primaire)</h3>
+<p><a href="https://online-help.sagex3.com/erp/12/en-us/Content/V7DEV/4gl_trbegin.html">Sage X3 — Trbegin</a>
+et <a href="https://online-help.sagex3.com/erp/12/en-us/Content/V7DEV/4gl_commit.html">Commit</a>.</p>
+
+<h3>Référence</h3>
+<p><a href="../reference/glossaire.html">Glossaire</a> — section « Base de données ».</p>
+
+<footer>
+<b>Rappel espacé</b> : (leçon 4) à quel indice ajoute-t-on une ligne de grille ?
+(leçon 1) le rôle de <code>$ACTION</code> ? De tête.<br><br>
+<b>Prochaine leçon</b> : écrire un fichier — <code>Openo / Wrseq / Iomode</code>,
+le vrai <code>GENERE_BL</code> qui fabrique le fichier d'import du BL.<br><br>
+Une question ? <b>Demande à ton agent-prof.</b>
+</footer>
+<script src="../assets/quiz.js"></script>
+</body></html>

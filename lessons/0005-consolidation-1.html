@@ -1,0 +1,121 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Consolidation 1 — Leçons 1 à 4</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head><body>
+<div class="kicker">Consolidation · Leçons 1–4 · ~10 min · <span class="tag">retrieval</span></div>
+<h1>Consolidation</h1>
+<p><i>Aucune notion neuve. Récupère de mémoire — c'est l'effort qui ancre.</i></p>
+<p>Les questions sont <b>mélangées</b> exprès (interleaving) : routeur, écran/base,
+fstat, grille, dans le désordre. Réponds de tête avant de cliquer.</p>
+
+<h2>Partie A — Rappel rapide</h2>
+
+<div class="quiz" data-answer="2">
+<div class="q">1. Qui remplit la variable <code>ACTION</code> ?</div>
+<button data-fb="Non — la base ne pilote pas les évènements.">La base de données</button>
+<button data-fb="Non — tu ne l'assignes jamais dans le routeur.">Ton code</button>
+<button data-fb="Exact (leçon 1). Le superviseur X3 selon l'évènement écran.">Le superviseur X3</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+<div class="q">2. <code>fstat = 0</code> signifie :</div>
+<button data-fb="Exact (leçon 3). 0 = succès.">Succès de l'opération</button>
+<button data-fb="Non — c'est l'inverse.">Échec de l'opération</button>
+<button data-fb="Non — 0 est non ambigu.">Aucune opération faite</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+<div class="q">3. <code>[F:YNV]</code> désigne :</div>
+<button data-fb="Non — ça, c'est [M:] (le masque écran).">Le masque écran</button>
+<button data-fb="Exact (leçon 2). [F:] = enregistrement base, en mémoire.">L'enregistrement base</button>
+<button data-fb="Non — une variable globale, c'est [V].">Une variable globale</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+<div class="q">4. Les lignes remplies d'une grille (<code>NBYNV</code>) vont de :</div>
+<button data-fb="Non — l'index part de 0.">1 à NBYNV</button>
+<button data-fb="Non — ça inclut une case vide.">0 à NBYNV</button>
+<button data-fb="Exact (leçon 4). 0 à NBYNV-1.">0 à NBYNV-1</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+<div class="q">5. <code>[M:YNV0] = [F:YNV]</code> va dans quel sens ?</div>
+<button data-fb="Non — la cible (gauche) est le masque.">Écran vers base</button>
+<button data-fb="Exact (leçon 2). Base vers écran : on affiche la fiche lue.">Base vers écran</button>
+<button data-fb="Non — aucune écriture disque.">Mémoire vers disque</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+<div class="q">6. <code>OK = 0</code> dans une action sert à :</div>
+<button data-fb="Exact (leçon 4). Bloquer l'action en cours (ex : doublon palette).">Bloquer l'action en cours</button>
+<button data-fb="Non — ce n'est pas un code de succès DB (ça, c'est fstat).">Marquer un succès DB</button>
+<button data-fb="Non — rien à voir avec l'affichage.">Rafraîchir l'écran</button>
+<div class="fb"></div>
+</div>
+
+<h2>Partie B — Lecture de code (le vrai test)</h2>
+<p>Voici un extrait réel de YNAVETTE. Lis-le, puis réponds.</p>
+<pre><code>For I = 0 To [M:YNV1]NBYNV-1
+    If [M:YNV1]PALNUM(I) = [F:STJ]PALNUM
+        Call ECR_TRACE("palette déjà sélectionnée",0) From GESECRAN
+        OK = 0
+        Return
+    Endif
+Next</code></pre>
+
+<div class="quiz" data-answer="1">
+<div class="q">7. Que fait ce bloc, en une phrase métier ?</div>
+<button data-fb="Non — il n'ajoute rien ici ; il vérifie seulement.">Il ajoute la palette à la grille</button>
+<button data-fb="Exact. Anti-doublon : si la palette est déjà dans la grille, il bloque (OK=0) et sort.">Il empêche d'ajouter une palette en double</button>
+<button data-fb="Non — il ne supprime aucune ligne.">Il retire une palette de la grille</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+<div class="q">8. Pourquoi <code>NBYNV-1</code> comme borne, et pas <code>NBYNV</code> ?</div>
+<button data-fb="Non — rien à voir avec la performance.">Pour aller plus vite</button>
+<button data-fb="Non — la grille n'a pas qu'une ligne.">Parce qu'il n'y a qu'une ligne</button>
+<button data-fb="Exact. La dernière ligne remplie est à l'indice NBYNV-1 ; NBYNV serait une case vide.">Car la dernière ligne remplie est à NBYNV-1</button>
+<div class="fb"></div>
+</div>
+
+<pre><code>Read [F:YSOH2]SOH0 = [M:YNV1]SOHNUM(I)
+If [S]fstat = 0
+    [M:YNV1]BPCORD(I) = [F:YSOH2]BPCORD
+Endif</code></pre>
+
+<div class="quiz" data-answer="0">
+<div class="q">9. Si on retirait le <code>If [S]fstat = 0</code>, quel bug ?</div>
+<button data-fb="Exact. Commande non trouvée -> [F:] garde les restes d'avant -> mauvais client copié dans la ligne.">On copierait un client erroné</button>
+<button data-fb="Non — pas de plantage : l'erreur passe en silence, c'est le danger.">Le programme planterait</button>
+<button data-fb="Non — la boucle reste bornée par NBYNV.">La boucle deviendrait infinie</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+<div class="q">10. <code>[M:YNV1]BPCORD(I) = [F:YSOH2]BPCORD</code> : quel sens, et effet ?</div>
+<button data-fb="Non — ça n'écrit rien en base.">Écran vers base, ça sauvegarde</button>
+<button data-fb="Non — relis : la cible (gauche) est la grille écran.">Écran vers écran, sans effet</button>
+<button data-fb="Exact. Base -> grille écran : le client de la commande s'affiche sur la ligne I (après Affzo).">Base vers écran, affiche le client</button>
+<div class="fb"></div>
+</div>
+
+<hr>
+<h3>Bilan</h3>
+<p>10/10 de tête → tu peux attaquer les transactions. Des hésitations sur 7–10
+(lecture de code) → relis la <a href="0004-la-grille.html">leçon 4</a> ; sur 9 →
+<a href="0003-fstat.html">leçon 3</a>.</p>
+
+<footer>
+<b>Prochaine leçon</b> : les transactions — <code>Trbegin / Commit / Rollback</code>,
+le « tout ou rien » de la validation navette (<code>VALIDE_NAVETTE</code>).<br><br>
+Bloqué sur une question ? <b>Demande à ton agent-prof</b> de détailler.
+</footer>
+<script src="../assets/quiz.js"></script>
+</body></html>

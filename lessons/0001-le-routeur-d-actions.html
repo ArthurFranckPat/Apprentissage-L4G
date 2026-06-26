@@ -1,0 +1,96 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Leçon 1 — Le routeur d'actions</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head><body>
+<div class="kicker">Leçon 1 · Objets X3 · ~6 min</div>
+<h1>Le routeur d'actions</h1>
+<p><i>Comment un clic utilisateur devient du code.</i></p>
+
+<p>Un objet X3 (comme <code>YNAVETTE</code>) n'a pas de <code>main()</code>. Le
+superviseur Sage pilote l'écran ; à chaque moment-clé — ouverture, clic bouton,
+sortie d'un champ — il <b>déclenche une action nommée</b> et appelle <b>ton</b>
+code à un seul point d'entrée : <code>$ACTION</code>.</p>
+
+<h2>Le squelette universel</h2>
+<p>Quasi tous les objets spécifiques commencent ainsi :</p>
+<pre><code>$ACTION
+  Case ACTION
+    When "LIENS"    : Gosub LIENS
+    When "PICKE"    : Gosub PICKE
+    When "SETBOUT"  : Gosub SETBOUT
+    When "EXEBOUT"  : Gosub EXEBOUT
+  Endcase
+Return</code></pre>
+
+<p>Trois choses à voir :</p>
+<ul>
+<li><code>ACTION</code> est une variable que <b>le superviseur remplit</b> avec le nom
+de l'évènement (tu ne l'assignes jamais).</li>
+<li><code>Case … When "X" : Gosub X</code> = un aiguillage. <code>Gosub X</code> saute
+à l'étiquette <code>$X</code> plus bas, exécute, et revient au <code>Return</code>
+suivant.</li>
+<li>Le <code>:</code> n'est pas une fin de ligne — c'est un <b>séparateur
+d'instructions</b>, qui permet d'écrire <code>When "X" : Gosub X</code> sur une ligne.</li>
+</ul>
+
+<div class="note metier">
+Lis le <code>Case</code> comme un <b>menu des gestes métier possibles</b> sur cet
+écran. Dans YNAVETTE : <code>PICKE</code> = « je clique une palette pour l'ajouter »,
+<code>EXEBOUT</code> = « j'ai cliqué un bouton », <code>LIENS</code> = « l'écran
+s'ouvre ». Le routeur est la table des matières de l'objet.
+</div>
+
+<h2>Le vocabulaire d'un dev qui débarque</h2>
+<p>Tu connais déjà le concept (un <i>dispatcher</i> / event loop). Ce qui change en
+X3, ce sont les <b>noms d'actions standardisés</b> — ils reviennent partout :</p>
+<table style="border-collapse:collapse;width:100%;font-size:.85rem">
+<tr style="background:var(--code-bg)"><th style="border:1px solid var(--rule);padding:.4rem .6rem;text-align:left">Action</th><th style="border:1px solid var(--rule);padding:.4rem .6rem;text-align:left">Déclenchée quand…</th></tr>
+<tr><td style="border:1px solid var(--rule);padding:.4rem .6rem"><code>LIENS</code></td><td style="border:1px solid var(--rule);padding:.4rem .6rem">L'écran charge une fiche (record → masque)</td></tr>
+<tr><td style="border:1px solid var(--rule);padding:.4rem .6rem"><code>SETBOUT</code></td><td style="border:1px solid var(--rule);padding:.4rem .6rem">Le superviseur décide quels boutons afficher</td></tr>
+<tr><td style="border:1px solid var(--rule);padding:.4rem .6rem"><code>EXEBOUT</code></td><td style="border:1px solid var(--rule);padding:.4rem .6rem">On clique un bouton (le code est dans <code>BOUT</code>)</td></tr>
+</table>
+
+<h2>Teste-toi</h2>
+
+<div class="quiz" data-answer="1">
+<div class="q">Qui assigne la variable <code>ACTION</code> ?</div>
+<button data-fb="Non — tu ne l'écris jamais toi-même dans le routeur.">Le code du Subprog la calcule</button>
+<button data-fb="Exact. Le superviseur Sage la remplit selon l'évènement écran.">Le superviseur X3 la remplit</button>
+<button data-fb="Non — la base ne pilote pas les évènements d'écran.">La base de données la fournit</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+<div class="q">Dans <code>When "PICKE" : Gosub PICKE</code>, que fait le <code>:</code> ?</div>
+<button data-fb="Non — ce n'est pas une fin d'instruction comme en C/Java.">Il termine l'instruction</button>
+<button data-fb="Non — la comparaison est déjà faite par When.">Il compare deux valeurs</button>
+<button data-fb="Exact. C'est le séparateur d'instructions : il enchaîne When et Gosub sur une ligne.">Il sépare deux instructions</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+<div class="q">Sur quel évènement métier branche-t-on l'ajout d'une palette à la navette ?</div>
+<button data-fb="Exact. PICKE = clic sur une palette dans la liste de gauche pour l'ajouter à la grille.">PICKE</button>
+<button data-fb="Non — LIENS, c'est le chargement de l'écran.">LIENS</button>
+<button data-fb="Non — SETBOUT gère seulement l'affichage des boutons.">SETBOUT</button>
+<div class="fb"></div>
+</div>
+
+<hr>
+<h3>À lire (source primaire)</h3>
+<p>La doc officielle des évènements d'action :
+<a href="https://online-help.sagex3.com/erp/12/en-us/Content/MODEL/BOUTON.htm">Sage X3 — action BOUTON & variable BOUT</a>.
+Survole-la pour voir comment <code>EXEBOUT</code> et <code>BOUT</code> sont décrits côté éditeur.</p>
+
+<h3>Référence</h3>
+<p>Garde le <a href="../reference/glossaire.html">glossaire</a> ouvert (section « Mots-clés structure »).</p>
+
+<footer>
+<b>Prochaine leçon</b> : <code>[M:]</code> vs <code>[F:]</code> — l'écran et la base,
+et le geste <code>[M:YNV0]=[F:YNV]</code> de <code>$LIENS</code>.<br><br>
+Bloqué ou curieux ? <b>Pose la question à ton agent-prof</b> — c'est fait pour ça.
+Demande p.ex. « montre-moi tout le flux d'un clic Validation dans YNAVETTE ».
+</footer>
+<script src="../assets/quiz.js"></script>
+</body></html>

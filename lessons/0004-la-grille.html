@@ -1,0 +1,112 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Leçon 4 — La grille</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head><body>
+<div class="kicker">Leçon 4 · Écran · ~7 min</div>
+<h1>La grille</h1>
+<p><i>Un masque qui contient plusieurs lignes — et comment les parcourir.</i></p>
+
+<p>L'en-tête <code>[M:YNV0]</code> tient <b>une</b> valeur par champ. La grille
+<code>[M:YNV1]</code> en tient <b>plusieurs</b> : chaque colonne est un tableau,
+indexé par ligne. On y accède avec un indice entre parenthèses.</p>
+
+<pre><code>[M:YNV1]PALNUM(0)   # palette de la 1re ligne
+[M:YNV1]PALNUM(1)   # palette de la 2e ligne
+[M:YNV1]QTY(I)      # quantité de la ligne I</code></pre>
+
+<div class="note metier">
+La grille YNAVETTE = la <b>liste des palettes</b> de la navette à l'écran. Chaque
+ligne = une palette pickée : son n°, son article, sa quantité, sa commande. C'est
+ce que l'utilisateur construit en cliquant.
+</div>
+
+<h2>Le compteur : <code>NBYNV</code></h2>
+<p>Combien de lignes sont réellement remplies ? Un champ compteur le dit — ici
+<code>[M:YNV1]NBYNV</code>. Les lignes valides vont de l'indice <code>0</code> à
+<code>NBYNV-1</code>. C'est la borne de toute boucle sur la grille :</p>
+
+<pre><code>For I = 0 To [M:YNV1]NBYNV-1
+    Read [F:YSOH2]SOH0 = [M:YNV1]SOHNUM(I)   # lire la commande de la ligne I
+    If [S]fstat = 0                          # (leçon 3 : on teste !)
+        [M:YNV1]BPCORD(I) = [F:YSOH2]BPCORD  # base -> grille (leçon 2 : le sens)
+    Endif
+Next
+Affzo [M:YNV1]                               # rafraîchir l'affichage</code></pre>
+
+<p>Trois acquis se combinent ici : <b>la boucle</b> (neuf), <b>le test fstat</b>
+(leçon 3), <b>le transfert base→écran</b> (leçon 2). C'est tout
+<code>$LIENS2</code> : remplir le client de chaque ligne.</p>
+
+<h2>Ajouter une ligne : écrire à l'indice <code>NBYNV</code></h2>
+<p>La première case <b>libre</b> est exactement à l'indice <code>NBYNV</code> (puisque
+les remplies vont jusqu'à <code>NBYNV-1</code>). Pour ajouter, on écrit là, puis on
+incrémente. C'est le geste de <code>$PICKE</code> :</p>
+
+<pre><code>[M:YNV1]PALNUM([M:YNV1]NBYNV) = [F:STJ]PALNUM   # nouvelle ligne = palette cliquée
+[M:YNV1]SOHNUM([M:YNV1]NBYNV) = [F:SOH]SOHNUM
+[M:YNV1]QTY([M:YNV1]NBYNV)    = [F:STJ]QTYSTU
+[M:YNV1]NBYNV += 1                              # une ligne de plus</code></pre>
+
+<h2>Garde-fou métier : l'anti-doublon</h2>
+<p>Avant d'ajouter, <code>$PICKE</code> vérifie que la palette n'est pas déjà dans la
+grille. Si oui → message + <code>OK = 0</code> (souviens-toi : ça <b>bloque</b>
+l'action) + sortie :</p>
+
+<pre><code>For I = 0 To [M:YNV1]NBYNV-1
+    If [M:YNV1]PALNUM(I) = [F:STJ]PALNUM
+        Call ECR_TRACE("palette déjà sélectionnée",0) From GESECRAN
+        OK = 0
+        Return
+    Endif
+Next</code></pre>
+
+<div class="note piege">
+Quand tu <b>supprimes</b> une ligne au milieu (<code>$DEPICK</code> avec <code>Dela</code>),
+les suivantes glissent d'un cran. Si tu ne recules pas l'indice (<code>I-=1</code>),
+tu sautes la ligne qui a pris la place. Boucle + suppression = toujours ce piège.
+</div>
+
+<h2>Teste-toi</h2>
+
+<div class="quiz" data-answer="1">
+<div class="q">Les lignes remplies d'une grille de compteur <code>NBYNV</code> vont de :</div>
+<button data-fb="Non — l'indexation commence à 0, pas à 1.">1 à NBYNV</button>
+<button data-fb="Exact. De 0 à NBYNV-1 ; l'indice NBYNV est la 1re case libre.">0 à NBYNV-1</button>
+<button data-fb="Non — 0 à NBYNV inclut une case vide en trop.">0 à NBYNV</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+<div class="q">Pour ajouter une palette, on écrit à l'indice…</div>
+<button data-fb="Non — l'indice 0 écraserait la première ligne.">0</button>
+<button data-fb="Non — NBYNV-1 est la dernière ligne déjà remplie : tu l'écraserais.">NBYNV-1</button>
+<button data-fb="Exact. NBYNV = première case libre ; on écrit puis on fait NBYNV += 1.">NBYNV</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+<div class="q">Dans <code>$LIENS2</code>, à quoi sert le <code>If [S]fstat = 0</code> ?</div>
+<button data-fb="Exact. On ne recopie le client que si la commande a bien été lue (leçon 3).">Ne copier que si la lecture réussit</button>
+<button data-fb="Non — il ne compte pas les lignes ; c'est NBYNV qui borne la boucle.">Compter les lignes de la grille</button>
+<button data-fb="Non — l'affichage, c'est Affzo, pas fstat.">Rafraîchir la grille</button>
+<div class="fb"></div>
+</div>
+
+<hr>
+<h3>À lire (source primaire)</h3>
+<p><a href="https://online-help.sagex3.com/erp/12/en-us/Content/V7DEV/4gl_for.html">Sage X3 — For</a> :
+la boucle, ses bornes, <code>Exitfor</code>.</p>
+
+<h3>Référence</h3>
+<p><a href="../reference/glossaire.html">Glossaire</a> — sections « Écran / masque » et « Base de données ».</p>
+
+<footer>
+<b>Rappel espacé</b> : (leçon 3) que vaut <code>fstat</code> en cas de succès ?
+(leçon 2) <code>[F:YNV] = [M:YNV0]</code> va dans quel sens ? De tête.<br><br>
+<b>Prochaine leçon</b> : les transactions — <code>Trbegin / Commit / Rollback</code>
+et pourquoi valider la navette est « tout ou rien ».<br><br>
+Une question ? <b>Demande à ton agent-prof.</b>
+</footer>
+<script src="../assets/quiz.js"></script>
+</body></html>

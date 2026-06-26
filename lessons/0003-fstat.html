@@ -1,0 +1,97 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Leçon 3 — fstat, le garde-fou</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head><body>
+<div class="kicker">Leçon 3 · Base de données · ~6 min</div>
+<h1>fstat, le garde-fou</h1>
+<p><i>Le code retour que personne n'affiche, mais que tout le monde doit tester.</i></p>
+
+<p>L4G n'a pas d'exceptions. Une lecture qui échoue ne « lève » rien : elle pose
+discrètement un code dans la variable système <code>[S]fstat</code> et continue.
+Si tu ne le testes pas, ton code avance avec des données fausses — et personne ne
+le sait.</p>
+
+<pre><code>Read [YNV]NAVETTE = PNAV
+If fstat                       # fstat &ne; 0  ->  échec
+    Errbox "Navette introuvable"
+    End
+Endif
+# ici, et seulement ici, [F:YNV] est fiable</code></pre>
+
+<div class="note metier">
+La règle d'or : <b><code>fstat = 0</code> = succès</b>. Toute autre valeur = problème
+(non trouvé, verrou, erreur). Après chaque <code>Read</code>, <code>Write</code>,
+<code>Rewrite</code>, <code>Delete</code>, <code>For</code>, <code>Openo</code>,
+<code>Wrseq</code> → tu testes <code>fstat</code>. Sans exception.
+</div>
+
+<h2>Les deux écritures qui veulent dire la même chose</h2>
+<p>En L4G, un entier non nul est « vrai ». Donc ces deux formes sont équivalentes :</p>
+<pre><code>If fstat        # vrai si fstat &ne; 0  -> ÉCHEC
+If fstat = 0    # vrai si succès</code></pre>
+<p>YNAVETTE utilise la forme explicite, plus lisible, partout :</p>
+<pre><code>Read [F:YSOH2]SOH0 = [M:YNV1]SOHNUM(I)
+If [S]fstat = 0
+    [M:YNV1]BPCORD(I) = [F:YSOH2]BPCORD   # n'agit que si la lecture a réussi
+Endif</code></pre>
+<p>Ici, le nom du client n'est recopié <b>que si</b> la commande a bien été trouvée.
+Sans ce test, une commande absente écraserait <code>BPCORD(I)</code> avec les restes
+de la lecture précédente.</p>
+
+<div class="note piege">
+<b>Teste <code>fstat</code> tout de suite.</b> Beaucoup d'instructions le
+réécrasent. Si tu intercales du code entre l'op et le test, tu lis peut-être le
+<code>fstat</code> d'autre chose. Op → test, collés.
+</div>
+
+<h2>Lire le bon « identifiant » : l'index, pas le champ</h2>
+<p>Détail qui piège : <code>Read</code> se fait par <b>nom d'index</b>, pas par nom de
+champ. Dans <code>Read [YNV]NAVETTE = PNAV</code>, <code>NAVETTE</code> est ici le
+nom de la <b>clé</b>. Et <code>Read [F:YSOH2]SOH0 = …</code> : <code>SOH0</code> est
+l'index primaire de SORDER (souvent <code>&lt;ABV&gt;0</code>). Mauvais index →
+échec silencieux (donc… on teste <code>fstat</code>).</p>
+
+<h2>Teste-toi</h2>
+
+<div class="quiz" data-answer="1">
+<div class="q">Après <code>Read</code>, <code>fstat</code> vaut <code>0</code>. Cela signifie :</div>
+<button data-fb="Non — 0 est justement le cas qui marche.">La lecture a échoué</button>
+<button data-fb="Exact. 0 = succès, [F:] est fiable.">La lecture a réussi</button>
+<button data-fb="Non — fstat=0 est non ambigu : c'est le succès.">État indéterminé</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+<div class="q">Pourquoi tester <code>fstat</code> immédiatement après l'opération ?</div>
+<button data-fb="Non — la perf n'a rien à voir ici.">Pour gagner en performance</button>
+<button data-fb="Non — la lisibilité est un bonus, pas la raison.">Pour rendre le code lisible</button>
+<button data-fb="Exact. D'autres instructions réécrasent fstat ; tardif = tu lis le mauvais.">D'autres ops réécrasent fstat</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+<div class="q">Dans <code>$LIENS2</code>, sans le test <code>If [S]fstat=0</code>, que risque-t-on ?</div>
+<button data-fb="Exact. Une commande non trouvée laisserait [F:] avec les restes de la lecture d'avant -> mauvais client copié.">Recopier un client erroné</button>
+<button data-fb="Non — l'absence de test ne fige pas l'écran.">L'écran se fige</button>
+<button data-fb="Non — pas de plantage : c'est justement le danger, ça passe silencieusement.">Un plantage immédiat</button>
+<div class="fb"></div>
+</div>
+
+<hr>
+<h3>À lire (source primaire)</h3>
+<p><a href="https://online-help.sagex3.com/erp/12/en-us/Content/V7DEV/4gl_fstat.html">Sage X3 — fstat</a> :
+la liste des codes (0, et les valeurs d'erreur courantes).</p>
+
+<h3>Référence</h3>
+<p><a href="../reference/glossaire.html">Glossaire</a> — section « Base de données ».</p>
+
+<footer>
+<b>Rappel espacé</b> (leçon 2) : <code>[M:YNV0] = [F:YNV]</code> — quel sens, et
+qu'est-ce qui est à gauche ? Réponds de tête.<br><br>
+<b>Prochaine leçon</b> : la grille — <code>For … Next</code> et l'accès ligne par
+ligne <code>[M:YNV1]PALNUM(I)</code> / <code>NBYNV</code> (le picking de palettes).<br><br>
+Une question ? <b>Demande à ton agent-prof.</b>
+</footer>
+<script src="../assets/quiz.js"></script>
+</body></html>

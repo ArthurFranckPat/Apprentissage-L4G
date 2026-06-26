@@ -1,0 +1,107 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Leçon 2 — L'écran et la base</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head><body>
+<div class="kicker">Leçon 2 · Objets X3 · ~6 min</div>
+<h1>L'écran et la base</h1>
+<p><i><code>[M:]</code> vs <code>[F:]</code> — les deux mondes que tout objet relie.</i></p>
+
+<p>Un objet X3 vit entre <b>deux buffers mémoire</b> distincts. Tout le travail
+consiste à faire transiter la donnée de l'un à l'autre. Confondre les deux = le
+bug n°1 du débutant.</p>
+
+<table style="border-collapse:collapse;width:100%;font-size:.9rem;margin:1.2rem 0">
+<tr style="background:var(--code-bg)"><th style="border:1px solid var(--rule);padding:.5rem .7rem;text-align:left"></th><th style="border:1px solid var(--rule);padding:.5rem .7rem;text-align:left"><code>[F:ABV]</code></th><th style="border:1px solid var(--rule);padding:.5rem .7rem;text-align:left"><code>[M:MSK]</code></th></tr>
+<tr><td style="border:1px solid var(--rule);padding:.5rem .7rem"><b>C'est quoi</b></td><td style="border:1px solid var(--rule);padding:.5rem .7rem">Un enregistrement <b>base</b></td><td style="border:1px solid var(--rule);padding:.5rem .7rem">Un <b>masque écran</b></td></tr>
+<tr><td style="border:1px solid var(--rule);padding:.5rem .7rem"><b>Rempli par</b></td><td style="border:1px solid var(--rule);padding:.5rem .7rem"><code>Read</code> / <code>For</code></td><td style="border:1px solid var(--rule);padding:.5rem .7rem">La saisie utilisateur</td></tr>
+<tr><td style="border:1px solid var(--rule);padding:.5rem .7rem"><b>Visible ?</b></td><td style="border:1px solid var(--rule);padding:.5rem .7rem">Non (mémoire)</td><td style="border:1px solid var(--rule);padding:.5rem .7rem">Oui (à l'écran)</td></tr>
+<tr><td style="border:1px solid var(--rule);padding:.5rem .7rem"><b>Persiste ?</b></td><td style="border:1px solid var(--rule);padding:.5rem .7rem">Vers la base via <code>Write</code>/<code>Rewrite</code></td><td style="border:1px solid var(--rule);padding:.5rem .7rem">Non — rien tant qu'on ne sauve pas</td></tr>
+</table>
+
+<div class="note metier">
+Image mentale : <code>[F:]</code> = le tiroir du classeur (le dossier rangé).
+<code>[M:]</code> = la feuille posée sur le bureau, devant l'utilisateur. Le tiroir
+ne change que si on y <b>repose</b> la feuille (<code>Write</code>). La feuille
+n'affiche le dossier que si on l'en <b>sort</b> (<code>Read</code>).
+</div>
+
+<h2>Le transfert — les deux sens</h2>
+<p>Une seule syntaxe, un signe = tout le record d'un coup. Le <b>sens</b> dépend de
+quel côté est à gauche :</p>
+<pre><code># base -> écran   (afficher une fiche lue)
+[M:YNV0] = [F:YNV]
+
+# écran -> base   (préparer une écriture)
+[F:YNV] = [M:YNV0]</code></pre>
+
+<p>C'est exactement ce que fait YNAVETTE à l'ouverture (<code>$LIENS</code>) :</p>
+<pre><code>$LIENS
+  [M:YNV0]=[F:YNV]        # le record lu remplit l'en-tête écran
+  Affzo [M:YNV0]          # ...et on rafraîchit l'affichage
+  Grizo [M:YNV0]NAVETTE   # le n° navette : visible mais non saisissable
+Return</code></pre>
+
+<p>Puis à la création (<code>$INICRE</code>), le sens s'inverse — on prépare le
+record avant écriture :</p>
+<pre><code>$INICRE
+ [F:YNV]=[M:YNV0]         # ce que l'user a saisi -> le record
+ [F:YNV]VALFLG=1          # statut "en cours"
+Return</code></pre>
+
+<div class="note piege">
+Écrire dans <code>[F:]</code> ne change <b>rien à l'écran</b> (l'user ne voit pas).
+Écrire dans <code>[M:]</code> ne change <b>rien en base</b> (rien n'est sauvé).
+Symptôme classique : « j'ai mis la valeur mais elle ne s'affiche pas » → tu as
+écrit côté <code>[F:]</code> au lieu de <code>[M:]</code> (ou oublié <code>Affzo</code>).
+</div>
+
+<h2>Pourquoi <code>0</code> et <code>1</code> dans <code>YNV0</code> / <code>YNV1</code> ?</h2>
+<p>Un écran a souvent plusieurs <b>blocs</b>. Dans YNAVETTE :
+<code>[M:YNV0]</code> = le bloc <b>en-tête</b> (n° navette, date, statut),
+<code>[M:YNV1]</code> = la <b>grille</b> des lignes (palettes). Deux masques, deux
+buffers. La grille s'indexe ligne par ligne — on verra ça leçon 4.</p>
+
+<h2>Teste-toi</h2>
+
+<div class="quiz" data-answer="1">
+<div class="q">Tu fais <code>[F:YNV]DAT = date$</code>. Que voit l'utilisateur ?</div>
+<button data-fb="Non — [F:] est un buffer base, invisible à l'écran.">La date s'affiche aussitôt</button>
+<button data-fb="Exact. [F:] est en mémoire base, l'écran ([M:]) n'a pas bougé.">Rien ne change à l'écran</button>
+<button data-fb="Non — écrire dans [F:] ne déclenche aucune sauvegarde.">La date est sauvée en base</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+<div class="q">Quel sens a <code>[M:YNV0] = [F:YNV]</code> ?</div>
+<button data-fb="Non — relis : la cible (gauche) est le masque.">Écran vers base</button>
+<button data-fb="Non — aucune écriture disque ici, juste une copie mémoire.">Base vers disque</button>
+<button data-fb="Exact. Gauche = masque, droite = record : on affiche la fiche lue.">Base vers écran</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+<div class="q">L'user a saisi des champs. Avant d'écrire en base, quel geste ?</div>
+<button data-fb="Exact. [F:]=[M:] recopie la saisie dans le record, prêt pour Write/Rewrite.">[F:YNV] = [M:YNV0]</button>
+<button data-fb="Non — ce sens écrase la saisie de l'user avec l'ancien record.">[M:YNV0] = [F:YNV]</button>
+<button data-fb="Non — Affzo rafraîchit l'affichage, il ne transfère pas vers la base.">Affzo [M:YNV0]</button>
+<div class="fb"></div>
+</div>
+
+<hr>
+<h3>À lire (source primaire)</h3>
+<p><a href="https://online-help.sagex3.com/erp/12/en-us/Content/V7DEV/4gl_read.html">Sage X3 — Read</a> :
+vois comment <code>Read</code> peuple <code>[F:]</code>. (Détail <code>fstat</code> = leçon 3.)</p>
+
+<h3>Référence</h3>
+<p><a href="../reference/glossaire.html">Glossaire</a> — sections « Préfixes de portée » et « Écran / masque ».</p>
+
+<footer>
+<b>Rappel espacé</b> (leçon 1) : qui remplit la variable <code>ACTION</code> ?
+Réponds de tête avant de continuer.<br><br>
+<b>Prochaine leçon</b> : <code>fstat</code> — pourquoi <code>Read</code> sans test
+<code>If fstat</code> est un bug silencieux.<br><br>
+Une question ? <b>Demande à ton agent-prof.</b>
+</footer>
+<script src="../assets/quiz.js"></script>
+</body></html>

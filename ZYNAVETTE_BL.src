@@ -1,0 +1,115 @@
+##############################################################
+# ZYNAVETTE_BL - Bon de livraison navette
+#
+# Point d'entree de l'objet YNAVETTE :
+#   $SETBUT : active/grise le bouton ZBTNBL selon NAVETTE chargee
+#   $BOUTON : traite le clic (BOUT = code bouton) -> genere le BL
+##############################################################
+
+##############################################################
+# SETBUT - activation du bouton ZBTNBL
+##############################################################
+$SETBUT
+If [M:YNV0]NAVETTE <> ""
+    Enable ZBTNBL
+Else
+    Disable ZBTNBL
+Endif
+Return
+
+##############################################################
+# BOUTON - clic sur un bouton de la barre d'action
+##############################################################
+$BOUTON
+If BOUT = "ZBTNBL"
+    Call BL_GENERE([M:YNV0]NAVETTE)
+Endif
+Return
+
+##############################################################
+# BL_GENERE - construit le fichier HTML du bon de livraison
+##############################################################
+Subprog BL_GENERE(PNAV)
+Value Char PNAV()
+
+Local Char    FILHTML(255), STATLIB(20), HSTR(8)
+Local Char    DESITM(60), NOMCLI(60), LASTPAL(20)
+Local Integer NBPAL
+Local Decimal TOTQTY
+Local File    YNAVETTE [YNV], ITMMASTER [ITM], SORDER [SOR], BPCUSTOMER [BPC]
+
+Read [YNV]NAVETTE = PNAV
+If fstat
+    Errbox "Navette introuvable"
+    End
+Endif
+
+If [F:YNV]VALFLG = 2
+    STATLIB = "Validee"
+Else
+    STATLIB = "Non validee"
+Endif
+
+HSTR = format$("N4", [F:YNV]HOU)
+HSTR = left$(HSTR, 2) - ":" - right$(HSTR, 2)
+
+FILHTML = filpath("TMP", "BL_" - PNAV, "html")
+Openo FILHTML Using [BL]
+If fstat
+    Errbox "Impossible de creer le fichier"
+    End
+Endif
+
+Wrseq "<!DOCTYPE html><html lang='fr'><head><meta charset='UTF-8'>" Using [BL]
+Wrseq "<title>Bon de livraison " - PNAV - "</title>" Using [BL]
+Wrseq "<style>" Using [BL]
+Wrseq "@page{size:A4 landscape;margin:1.5cm}" Using [BL]
+Wrseq "body{font-family:Arial,sans-serif;font-size:12px;color:#222}" Using [BL]
+Wrseq "h1{font-size:20px}" Using [BL]
+Wrseq "table{border-collapse:collapse;width:100%;margin-top:12px}" Using [BL]
+Wrseq "th,td{border:1px solid #888;padding:5px 8px;text-align:left}" Using [BL]
+Wrseq "th{background:#f0f0f0}" Using [BL]
+Wrseq "</style></head><body>" Using [BL]
+
+Wrseq "<h1>Bon de livraison</h1>" Using [BL]
+Wrseq "<p>Navette : " - PNAV - "</p>" Using [BL]
+Wrseq "<p>Date : " - format$("D:DD/MM/YYYY", [F:YNV]DAT) - "</p>" Using [BL]
+Wrseq "<p>Heure : " - HSTR - "</p>" Using [BL]
+Wrseq "<p>Statut : " - STATLIB - "</p>" Using [BL]
+
+Wrseq "<table><tr><th>Palette</th><th>Article</th><th>Designation</th><th>Qte</th><th>Commande</th><th>Client</th></tr>" Using [BL]
+
+TOTQTY = 0 : NBPAL = 0 : LASTPAL = ""
+
+For [YNV] Where NAVETTE = PNAV
+    TOTQTY = TOTQTY + [F:YNV]QTY
+    If [F:YNV]PALNUM <> LASTPAL : NBPAL = NBPAL + 1 : LASTPAL = [F:YNV]PALNUM : Endif
+
+    DESITM = ""
+    Read [ITM]ITM0 = [F:YNV]ITMREF
+    If fstat = 0 : DESITM = [F:ITM]ITMDES1 : Endif
+
+    NOMCLI = ""
+    If [F:YNV]SOHNUM <> ""
+        Read [SOR]SOH0 = [F:YNV]SOHNUM
+        If fstat = 0
+            Read [BPC]BPC0 = [F:SOR]BPCORD
+            If fstat = 0 : NOMCLI = [F:BPC]BPCNAM(0) : Endif
+        Endif
+    Endif
+
+    Wrseq "<tr><td>" - [F:YNV]PALNUM - "</td><td>" - [F:YNV]ITMREF - "</td><td>" - DESITM - "</td><td>" - num$([F:YNV]QTY) - "</td><td>" - [F:YNV]SOHNUM - "</td><td>" - NOMCLI - "</td></tr>" Using [BL]
+Next
+
+Wrseq "</table>" Using [BL]
+
+Wrseq "<p>Total quantite : " - num$(TOTQTY) - "</p>" Using [BL]
+Wrseq "<p>Nombre de palettes : " - num$(NBPAL) - "</p>" Using [BL]
+Wrseq "<br><br><p>Signature : ______________________</p>" Using [BL]
+
+Wrseq "</body></html>" Using [BL]
+
+Openo Using [BL]
+
+Infbox "Bon de livraison genere : " - FILHTML
+End

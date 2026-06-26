@@ -1,0 +1,83 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Glossaire L4G Sage X3</title>
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+table{border-collapse:collapse;width:100%;font-size:.85rem;margin:1rem 0}
+th,td{border:1px solid var(--rule);padding:.4rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--code-bg);font-variant:small-caps}
+td code{white-space:nowrap}
+</style>
+</head><body>
+<div class="kicker">Référence · à garder ouverte</div>
+<h1>Glossaire L4G Sage X3</h1>
+<p class="src">Nomenclature de référence. Toutes les leçons s'y conforment.
+Source de vérité : <a href="https://online-help.sagex3.com/erp/12/en-us/Content/V7DEV/">doc officielle Sage</a>.</p>
+
+<h2>Préfixes de portée (scope)</h2>
+<table>
+<tr><th>Préfixe</th><th>Sens</th><th>Exemple</th></tr>
+<tr><td><code>[V]</code></td><td>Variable globale (session)</td><td><code>[V]GUSER</code></td></tr>
+<tr><td><code>[L]</code></td><td>Variable locale au script</td><td><code>[L]YREP</code></td></tr>
+<tr><td><code>[S]</code></td><td>Variable système</td><td><code>[S]fstat</code></td></tr>
+<tr><td><code>[F:ABV]</code></td><td>Champ d'un <b>enregistrement</b> table (lu en base)</td><td><code>[F:YNV]NAVETTE</code></td></tr>
+<tr><td><code>[M:MSK]</code></td><td>Champ d'un <b>masque écran</b> (ce que voit l'user)</td><td><code>[M:YNV0]NAVETTE</code></td></tr>
+</table>
+<div class="note metier">Cœur du métier X3 : <code>[F:]</code> = la base, <code>[M:]</code> = l'écran.
+Tout le travail d'un objet = faire transiter la donnée de l'un à l'autre.</div>
+
+<h2>Mots-clés structure</h2>
+<table>
+<tr><th>Mot-clé</th><th>Rôle</th></tr>
+<tr><td><code>Subprog</code> / <code>Funprog</code></td><td>Sous-programme (Funprog renvoie une valeur via <code>End X</code>)</td></tr>
+<tr><td><code>$LABEL</code></td><td>Étiquette de saut interne</td></tr>
+<tr><td><code>Gosub L</code> / <code>Gosub L From S</code></td><td>Saut à <code>$L</code> (même fichier / autre script <code>S</code>)</td></tr>
+<tr><td><code>Call P(...) From S</code></td><td>Appel d'un Subprog <code>P</code> du script <code>S</code></td></tr>
+<tr><td><code>Case … When … Endcase</code></td><td>Aiguillage</td></tr>
+<tr><td><code>:</code></td><td>Séparateur d'instructions (pas fin de ligne)</td></tr>
+<tr><td><code>#</code> (début ligne) / <code>:#</code> (inline)</td><td>Commentaire</td></tr>
+</table>
+
+<h2>Base de données</h2>
+<table>
+<tr><th>Instruction</th><th>Rôle</th></tr>
+<tr><td><code>Local File TABLE [ABV]</code></td><td>Ouvre une table, alias <code>[ABV]</code></td></tr>
+<tr><td><code>Read [ABV]INDEX = val</code></td><td>Lit 1 ligne par <b>index</b> (pas par champ)</td></tr>
+<tr><td><code>For [ABV] Where … : … Next</code></td><td>Itère les lignes</td></tr>
+<tr><td><code>Link [B] With … As [X]</code></td><td>Jointure à la volée</td></tr>
+<tr><td><code>Trbegin / Commit / Rollback</code></td><td>Transaction</td></tr>
+<tr><td><code>Update T Where … With …</code></td><td>Mise à jour ensembliste</td></tr>
+<tr><td><code>[S]fstat</code></td><td><b>0 = succès</b>. À tester après chaque op DB/fichier</td></tr>
+</table>
+
+<h2>Écran / masque</h2>
+<table>
+<tr><th>Instruction</th><th>Rôle</th></tr>
+<tr><td><code>[M:X]=[F:X]</code> / <code>[F:X]=[M:X]</code></td><td>Transfert record↔masque</td></tr>
+<tr><td><code>Affzo [M:X]</code></td><td>Rafraîchit l'affichage</td></tr>
+<tr><td><code>Grizo</code> / <code>Actzo</code></td><td>Grise / active une zone</td></tr>
+<tr><td><code>OK = 0</code></td><td>Bloque l'action en cours</td></tr>
+<tr><td><code>BOUT</code></td><td>Code du bouton cliqué (action EXEBOUT)</td></tr>
+<tr><td><code>currbox</code></td><td>Zone écran courante</td></tr>
+<tr><td><code>maxtab([M:X])</code> / <code>NBxxx</code></td><td>Taille max grille / nb lignes saisies</td></tr>
+</table>
+
+<h2>Fichiers séquentiels</h2>
+<table>
+<tr><th>Instruction</th><th>Rôle</th></tr>
+<tr><td><code>Openo path Using [C]</code></td><td>Ouvre en écriture, canal <code>[C]</code> (crochets, <b>pas</b> un n°)</td></tr>
+<tr><td><code>Wrseq a;b;c Using [C]</code></td><td>Écrit (champs séparés par <code>;</code>)</td></tr>
+<tr><td><code>Openo Using [C]</code></td><td>Ferme le canal</td></tr>
+<tr><td><code>Iomode adxifs / adxirs</code></td><td>Définit séparateur champ / ligne</td></tr>
+</table>
+
+<h2>Conventions de nommage</h2>
+<table>
+<tr><th>Élément</th><th>Règle</th></tr>
+<tr><td>Code spécifique</td><td>Préfixe <code>Y</code> ou <code>Z</code> (jamais écraser un nom standard)</td></tr>
+<tr><td>Identifiants</td><td>MAJUSCULES, insensibles à la casse</td></tr>
+<tr><td>Mots-clés</td><td>PascalCase (<code>For</code>, <code>Endif</code>, <code>Return</code>)</td></tr>
+</table>
+
+<footer>Glossaire vivant — complété à chaque leçon. Questions → demande à ton agent-prof.</footer>
+</body></html>
