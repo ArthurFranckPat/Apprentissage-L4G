@@ -1,0 +1,127 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Leçon 6 — Écrire un fichier</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head><body>
+<div class="kicker">Leçon 6 · Fichiers · ~8 min</div>
+<h1>Écrire un fichier</h1>
+<p><i><code>Openo / Wrseq / Iomode</code> — fabriquer le fichier d'import du BL.</i></p>
+
+<p>Trois instructions, et <b>deux pièges de syntaxe</b> qui font perdre des heures (vécu).
+On les voit d'abord, puis le vrai <code>GENERE_BL</code> de YNAVETTE.</p>
+
+<h2>Le canal : un nom entre crochets, jamais un numéro</h2>
+<pre><code>Openo "chemin/fichier.dat" Using [YIMP]   # ouvre en écriture, canal [YIMP]
+Wrseq "ligne" Using [YIMP]                # écrit
+Openo Using [YIMP]                        # FERME (Openo sans chemin = close)</code></pre>
+
+<div class="note piege">
+<code>Using</code> attend une <b>abréviation entre crochets</b> (<code>[YIMP]</code>),
+librement choisie — <b>pas</b> un numéro de canal. <code>Using 7</code> →
+« caractère illégal ». Et le verbe d'écriture est <code>Wrseq</code>, pas
+<code>Writeseq</code>. La fermeture est un <code>Openo</code> <b>sans chemin</b>.
+</div>
+
+<h2>Le séparateur : <code>;</code>, posé une fois par <code>Iomode</code></h2>
+<p>Pour un fichier d'import à champs séparés, on ne colle pas les valeurs à la main :
+on déclare le séparateur, puis on liste les champs séparés par <code>;</code> dans
+<code>Wrseq</code>.</p>
+<pre><code>Iomode adxirs chr$(13)+chr$(10) Using [YIMP]   # séparateur de LIGNES = CR+LF
+Iomode adxifs ";" Using [YIMP]                 # séparateur de CHAMPS = ;
+Wrseq "H";[F:YSOH]SALFCY;[F:YSOH]BPCORD Using [YIMP]   # 3 champs, séparés par ;</code></pre>
+<ul>
+<li><code>adxifs</code> = <i>field separator</i> (entre colonnes).</li>
+<li><code>adxirs</code> = <i>record separator</i> (entre lignes) = CR+LF via <code>chr$()</code>.</li>
+<li>Dans <code>Wrseq</code>, le <code>;</code> sépare les champs — le moteur insère
+le <code>adxifs</code> à la place.</li>
+</ul>
+
+<div class="note metier">
+Ce fichier <code>.dat</code> n'est pas le BL « papier » : c'est un <b>fichier
+d'import Sage</b>. YNAVETTE l'écrit puis le réinjecte (<code>IMPORTSIL</code>) pour
+créer une <b>livraison (SDELIVERY)</b> dans l'ERP. Format classique : lignes
+préfixées <code>H</code> (en-tête), <code>L</code> (ligne), <code>S</code> (stock).
+</div>
+
+<h2>Le vrai <code>GENERE_BL</code>, décodé</h2>
+<pre><code>If [L]YFICHIER_IMPORT=""
+  [L]YFICHIER_IMPORT="YSDHFL_"+format$("D:YYYYMMDD[_]hhmmss",date$)
+  Openo filpath("Import/DEF",[L]YFICHIER_IMPORT,"dat",""),0 Using [YIMP]
+  Iomode adxirs chr$(13)+chr$(10) Using [YIMP]
+  Iomode adxifs ";" Using [YIMP]
+  Wrseq "H";[F:YSOH]SALFCY;[F:YSOH]STOFCY;"";[F:YSOH]BPCORD; ... Using [YIMP]
+Endif
+Read [F:YSOP]SOP0=[F:YSTA]VCRNUM;[F:YSTA]VCRLIN;[F:YSTA]VCRLIN
+Wrseq "L";[F:YSTA]VCRNUM;[F:YSTA]ITMREF;[F:YSOP]ITMDES; ... Using [YIMP]
+Wrseq "S";[F:YSTO]STA;[F:YSTO]PCU;[F:YSTO]PALNUM; ... Using [YIMP]</code></pre>
+<p>Lecture :</p>
+<ul>
+<li><code>filpath("Import/DEF", nom, "dat", "")</code> = construit un chemin
+<b>folder-aware</b> (portable, géré par X3). Toujours préférer à un chemin en dur.</li>
+<li><code>format$("D:YYYYMMDD[_]hhmmss",date$)</code> = horodatage dans le nom (les
+<code>[ ]</code> = littéral). <b>Rappel</b> : format date = <code>format$</code>,
+pas <code>num$(date,fmt)</code>.</li>
+<li>L'en-tête <code>H</code> n'est écrite <b>qu'une fois</b> (garde <code>If
+YFICHIER_IMPORT=""</code>) ; les <code>L</code>/<code>S</code> à chaque tour.</li>
+</ul>
+
+<h2>Toujours fermer — et au bon moment</h2>
+<pre><code>If [L]YFICHIER_IMPORT&lt;&gt;""
+  Openo Using [YIMP]                                  # ferme
+  Call IMPORTSIL("YSDH",filpath(...)) From GIMPOBJ    # puis on importe
+Endif</code></pre>
+<p>On ferme <b>avant</b> d'importer : un fichier encore ouvert n'est pas
+entièrement écrit sur disque. Op d'écriture → close → consommation.</p>
+
+<h2>Teste-toi</h2>
+
+<div class="quiz" data-answer="2">
+<div class="q">Que met-on après <code>Using</code> dans <code>Openo … Using …</code> ?</div>
+<button data-fb="Non — un numéro déclenche « caractère illégal ».">Un numéro de canal, ex 7</button>
+<button data-fb="Non — c'est le chemin, pas l'identifiant de canal.">Le chemin du fichier</button>
+<button data-fb="Exact. Une abréviation entre crochets, ex [YIMP].">Une abréviation [XXX]</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+<div class="q">Comment ferme-t-on le canal <code>[YIMP]</code> ?</div>
+<button data-fb="Exact. Openo sans chemin = fermeture du canal.">Openo Using [YIMP]</button>
+<button data-fb="Non — Close s'emploie pour les Local File (tables), pas ce canal séquentiel.">Close [YIMP]</button>
+<button data-fb="Non — Wrseq écrit, il ne ferme pas.">Wrseq "" Using [YIMP]</button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+<div class="q">À quoi sert <code>Iomode adxifs ";"</code> ?</div>
+<button data-fb="Non — le séparateur de lignes, c'est adxirs.">Définir le séparateur de lignes</button>
+<button data-fb="Exact. adxifs = séparateur de CHAMPS (entre colonnes).">Définir le séparateur de champs</button>
+<button data-fb="Non — ça n'ouvre aucun fichier ; c'est Openo.">Ouvrir le fichier en ; </button>
+<div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+<div class="q">Pourquoi l'en-tête <code>"H"</code> est sous <code>If YFICHIER_IMPORT=""</code> ?</div>
+<button data-fb="Non — rien à voir avec fstat ici.">Pour tester une erreur</button>
+<button data-fb="Non — le nom est déjà construit juste au-dessus.">Pour nommer le fichier</button>
+<button data-fb="Exact. Pour ne l'écrire qu'une fois (1re passe) ; les L/S se répètent ensuite.">Pour n'écrire l'en-tête qu'une fois</button>
+<div class="fb"></div>
+</div>
+
+<hr>
+<h3>À lire (source primaire)</h3>
+<p><a href="https://online-help.sagex3.com/erp/12/en-us/Content/V7DEV/4gl_openo.html">Openo</a>,
+<a href="https://online-help.sagex3.com/erp/12/en-us/Content/V7DEV/4gl_wrseq.html">Wrseq</a>,
+<a href="https://online-help.sagex3.com/erp/12/en-us/Content/V7DEV/4gl_iomode.html">Iomode</a>.</p>
+
+<h3>Référence</h3>
+<p><a href="../reference/glossaire.html">Glossaire</a> — section « Fichiers séquentiels ».</p>
+
+<footer>
+<b>Rappel espacé</b> : (leçon 5) <code>[S]adxlog</code> non-zéro = quoi ?
+(leçon 3) on teste <code>fstat</code> quand, par rapport à l'opération ?<br><br>
+<b>Prochaine leçon</b> : <code>Link</code> — la jointure à la volée (lire la
+commande de chaque palette sans boucle imbriquée).<br><br>
+Une question ? <b>Demande à ton agent-prof.</b>
+</footer>
+<script src="../assets/quiz.js"></script>
+</body></html>

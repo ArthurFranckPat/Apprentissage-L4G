@@ -1,0 +1,538 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+#ACL le 10/07/25 - 4145SKAR001 - gestion des navettes
+######################################################################################
+$ACTION
+  Case ACTION
+    When "RAZCRE"    : Gosub RAZCRE
+    When "RAZDUP"    : Gosub RAZCRE
+    When "FILGAUCHE" : Gosub FILGAUCHE
+    When "PICKE"     : Gosub PICKE
+    When "DEPICK"    : Gosub DEPICK
+    When "FIN_PICK"  : Gosub FIN_PICK
+    When "VERIF_CRE" : Gosub VERIF_CRE
+    When "INICRE"    : Gosub INICRE
+    When "LIENS"     : Gosub LIENS
+    When "LIENS2"     : Gosub LIENS2
+    When "SETBOUT"   : Gosub SETBOUT
+    When "EXEBOUT"   : Gosub EXEBOUT
+    When "AP_FILGAUCHE" : Gosub AP_FILGAUCHE
+    # mouvements de stock quai <-> navette UNIQUEMENT a l enregistrement,
+    # et APRES le commit du superviseur : CREATION/MODIF s executent DANS la
+    # transaction (doc act_objet) -> IMPORTSIL (Trbegin propre + traces) y est
+    # interdit, ca plante la fenetre. APRES_CRE/APRES_MOD/APRES_ANU =
+    # transaction terminee. APRES_ANU = apres suppression de la fiche.
+    When "APRES_CRE" : Gosub SYNC_NAV
+    When "APRES_MOD" : Gosub SYNC_NAV
+    When "AP_ANNULE" : Gosub SYNC_NAV
+  Endcase
+Return
+###########################################
+$EXEBOUT
+  If BOUT="V"
+    Local Integer YREPONSE
+    Local Integer WRETVAL
+    Local Char WMESSAGE(250)
+    Call OUINON("Voulez-vous valider la navette ?",[L]YREPONSE) From GESECRAN
+    If [L]YREPONSE=2
+      Call VALIDE_NAVETTE([M:YNV0]NAVETTE,WRETVAL,WMESSAGE)
+    Endif
+  Endif
+Return
+###########################################
+$SETBOUT
+  If GREP<>"" or [M:YNV0]VALFLG=2
+    Call VIREBOUT(CHAINE,"VA") From GOBJET
+  Endif
+Return
+
+###########################################
+$LIENS
+  [M:YNV0]=[F:YNV]
+  Affzo [M:YNV0]
+  Grizo [M:YNV0]NAVETTE
+  If [M:YNV0]VALFLG=2
+    Grizo [M:YNV0]
+    Grizo [M:YNV1]
+  Endif
+Return
+
+###########################################
+$LIENS2
+  #affichage client
+  Local File SORDER [YSOH2]
+  For I=0 To [M:YNV1]NBYNV-1
+    Read [F:YSOH2]SOH0=[M:YNV1]SOHNUM(I)
+    If [S]fstat=0
+      [M:YNV1]BPCORD(I)=[F:YSOH2]BPCORD
+    Endif
+  Next
+  Close Local File [YSOH2]
+  Affzo [M:YNV1]
+Return
+
+###########################################
+$VERIF_CRE
+  Local Integer YRET
+  Call NUMERO('YNV',"",date$,"",[M:YNV0]NAVETTE,YRET) From SUBANM
+  # echec silencieux du compteur = fiche creee avec NAVETTE vide -> tout le
+  # flux navette (sync stock, validation) travaille sur une cle vide. Bloquer.
+  If [M:YNV0]NAVETTE=""
+    Call ECR_TRACE("Compteur YNV : numero de navette NON genere (ret="+num$(YRET)+"), creation refusee",1) From GESECRAN
+    OK=0
+    Return
+  Endif
+  Affzo [M:YNV0]NAVETTE
+  Actzo [M:YNV0]NAVETTE
+Return
+
+########################################################
+$INICRE
+ [F:YNV]=[M:YNV0]
+ [F:YNV]VALFLG=1
+ [F:YNV]DAT= [M:YNV0]DAT
+ [F:YNV]HOU= [M:YNV0]HOU
+Return
+
+########################################################
+$FILGAUCHE
+  If currbox='GAU_CHE1'
+    If [M:YNV0]VALFLG<2
+    FILGAUSUP='[F:STJ]PALNUM<>"" & [F:STJ]TRSTYP=5 and [F:SOH]DLVSTA=1'
+    Else
+    FILGAUSUP='1=2'
+    Endif
+  Endif
+Return
+########################################################
+$RAZCRE
+  Grizo [M:YNV0]NAVETTE
+Return
+########################################################
+$AP_FILGAUCHE
+  If currbox='GAU_CHE1'
+    For I=0 To [M:YNV1]NBYNV-1
+      For [F:STJ] Where [F:STJ]PALNUM=[M:YNV1]PALNUM(I)
+        Gosub REPICK From GSAISIE
+      Next
+    Next
+  Endif
+Return
+########################################################
+$PICKE
+  If currbox='GAU_CHE1'
+    For I=0 To [M:YNV1]NBYNV-1
+      If [M:YNV1]PALNUM(I)=[F:STJ]PALNUM
+        Call ECR_TRACE("palette déjà sélectionnée",0) From GESECRAN
+        OK=0
+        Return
+      Endif
+    Next
+    # palette deja revendiquee par une AUTRE navette active (VALFLG<2) ?
+    # une palette ne peut appartenir qu a une navette a la fois : sans ce
+    # controle, la synchro de stock ne peut plus decider qui possede quoi.
+    Local Char YNAVREF(20)
+    Local File YNAVETTE [YNVP]
+    YNAVREF=""
+    For [F:YNVP] Where [F:YNVP]PALNUM=[F:STJ]PALNUM and [F:YNVP]VALFLG<2
+      If YNAVREF="" : YNAVREF=[F:YNVP]NAVETTE : Endif
+    Next
+    Close Local File [YNVP]
+    If YNAVREF<>"" and YNAVREF<>[M:YNV0]NAVETTE
+      Call ECR_TRACE("Palette deja dans la navette "+YNAVREF,1) From GESECRAN
+      OK=0
+      Return
+    Endif
+    [M:YNV1]PALNUM([M:YNV1]NBYNV)=[F:STJ]PALNUM
+    [M:YNV1]SOHNUM([M:YNV1]NBYNV)=[F:SOH]SOHNUM
+    [M:YNV1]ITMREF([M:YNV1]NBYNV)=[F:STJ]ITMREF
+    [M:YNV1]QTY([M:YNV1]NBYNV)=[F:STJ]QTYSTU
+    [M:YNV1]NBYNV+=1
+  Endif
+Return
+########################################################
+$DEPICK
+  If currbox='GAU_CHE1'
+    Local Integer YNOL
+    For I=0 To [M:YNV1]NBYNV-1
+      If [M:YNV1]PALNUM(I)=[F:STJ]PALNUM
+        YNOL = I
+        Dela YNOL,1,[M:YNV1]NBYNV-1 [M:YNV1]NBYNV
+        [M:YNV1]NBYNV -= 1
+        I-=1
+      Endif
+    Next
+  Endif
+Return
+########################################################
+# SYNC_NAV : synchronise le stock avec les navettes SAUVEGARDEES.
+# Appele a l enregistrement (creation/modification/suppression de fiche).
+# Rien ne bouge pendant la saisie : pick/depick/annulation avant
+# enregistrement = zero mouvement de stock.
+#  1) toute palette de la navette enregistree -> deplacee sur NAVn
+#     (deja dessus = no-op, idempotent)
+#  2) balayage : toute palette du stock sur un emplacement NAV* qui
+#     n appartient plus a AUCUNE navette active (VALFLG<2) -> retour QUAIn
+#     (couvre le depick sauvegarde, la suppression de navette, et repare
+#     les incoherences laissees par un plantage)
+# Les palettes a redescendre sont collectees AVANT de bouger (on ne modifie
+# pas STOCK pendant qu on le parcourt).
+$SYNC_NAV
+  Local Integer YRETA, YREF, YNBR, YNBTOT, YOK2
+  Local Char YITM(20)
+  Local Char YRPAL(20)(0..99)
+  Local Char YRITM(20)(0..99)
+  Local File YNAVETTE [YNVA]
+  Local File STOCK    [YSTOS]
+
+  # numero de navette : masque si encore affiche, sinon buffer fichier
+  # (a APRES_MOD/APRES_CRE le masque peut deja etre vide)
+  Local Char YNAV(20)
+  Local Char YREFNAV(20)
+  Local Integer YTRC
+  YNAV=[M:YNV0]NAVETTE
+  If YNAV="" : YNAV=[F:YNV]NAVETTE : Endif
+
+  # tout le diagnostic part dans UNE fenetre de trace (pas de popups OK) ;
+  # les messages du moteur d import y atterrissent aussi.
+  YTRC=0
+  If GSERVEUR=0
+    Call OUVRE_TRACE("Sync stock navette "+YNAV) From LECFIC
+    YTRC=1
+  Endif
+  Call ECR_TRACE("SYNC evt="+ACTION+" navette=["+YNAV+"]",0) From GESECRAN
+
+  # 1) palettes de la navette courante -> navette
+  #    (article relu depuis STOCK : ITMREF pas garanti present dans YNAVETTE)
+  For [F:YNVA] Where [F:YNVA]NAVETTE=YNAV
+    YITM=""
+    For [F:YSTOS] Where [F:YSTOS]PALNUM=[F:YNVA]PALNUM
+      If YITM="" : YITM=[F:YSTOS]ITMREF : Endif
+    Next
+    Call ECR_TRACE("SYNC rec pal="+[F:YNVA]PALNUM+" itm="+YITM+" valflg="+num$([F:YNVA]VALFLG),0) From GESECRAN
+    If YITM<>""
+      Call MOUVEMENT_PALETTE([F:YNVA]PALNUM,YITM,1,YRETA)
+      Call ECR_TRACE("SYNC mov1 pal="+[F:YNVA]PALNUM+" ret="+num$(YRETA),0) From GESECRAN
+    Endif
+  Next
+
+  # 2) collecte des palettes orphelines sur NAV*
+  YNBR=0
+  YNBTOT=0
+  For [F:YSTOS] Where [F:YSTOS]LOC>="NAV" and [F:YSTOS]LOC<"NAW" and [F:YSTOS]PALNUM<>""
+    YNBTOT+=1
+    YREF=0
+    YREFNAV=""
+    For [F:YNVA] Where [F:YNVA]PALNUM=[F:YSTOS]PALNUM and [F:YNVA]VALFLG<2
+      YREF=1
+      If YREFNAV="" : YREFNAV=[F:YNVA]NAVETTE : Endif
+    Next
+    Call ECR_TRACE("SYNC nav pal="+[F:YSTOS]PALNUM+" loc="+[F:YSTOS]LOC+" ref="+num$(YREF)+" par=["+YREFNAV+"]",0) From GESECRAN
+    If YREF=0 and YNBR<100
+      YRPAL(YNBR)=[F:YSTOS]PALNUM
+      YRITM(YNBR)=[F:YSTOS]ITMREF
+      YNBR+=1
+    Endif
+  Next
+
+  # retour quai des orphelines (hors du parcours de STOCK)
+  YOK2=0
+  For I=0 To YNBR-1
+    Call MOUVEMENT_PALETTE(YRPAL(I),YRITM(I),2,YRETA)
+    YOK2+=YRETA
+    Call ECR_TRACE("SYNC mov2 pal="+YRPAL(I)+" ret="+num$(YRETA),0) From GESECRAN
+  Next
+
+  # BILAN une ligne : vues = palettes trouvees sur NAV* ; orphelines = plus
+  # dans aucune navette active (a redescendre) ; retours_ok = reussis.
+  # vues>0 orphelines=0 -> lignes YNAVETTE pas supprimees a l enregistrement
+  # orphelines>0 retours_ok=0 -> retour refuse par le moteur (voir trace)
+  Call ECR_TRACE("SYNC bilan vues="+num$(YNBTOT)+" orphelines="+num$(YNBR)+" retours_ok="+num$(YOK2),0) From GESECRAN
+
+  If YTRC=1
+    If GWEBSERV=0 : Call LEC_TRACE From LECFIC : Endif
+    Call FERME_TRACE From LECFIC
+  Endif
+
+  Close Local File [YNVA]
+  Close Local File [YSTOS]
+Return
+########################################################
+$FIN_PICK
+Affzo [M:YNV1]
+Return
+
+########################################################
+########################################################
+Subprog VALIDE_NAVETTE(NAVETTE,WRETVAL,WMESSAGE)
+Value Char NAVETTE
+Variable Integer WRETVAL
+Variable Char WMESSAGE
+Local Integer YOUVRE_TRACE,YERR,YNB
+Local Integer YSOLDE : YSOLDE=1
+Local Char YSOHNUM(250)
+If GSERVEUR=0
+  Call OUVRE_TRACE("Validation de la navette"-[L]NAVETTE) From LECFIC
+  [L]YOUVRE_TRACE=1
+Endif
+Local File YNAVETTE  [YYNV]
+Local File YNAVETTE  [YYNV2]
+Local File SORDER    [YSOH]
+Local File FACILITY  [YFCY]
+Local File SDELIVERY [YSDH]
+Local File AUTILIS   [YAUS]
+Read [F:YAUS]CODUSR=[V]GUSER
+Filter [YYNV] Where [YYNV]NAVETTE=[L]NAVETTE
+& Order By [YYNV]SOHNUM
+#tests verrou
+For [YYNV]
+  If [L]YSOHNUM<>[YYNV]SOHNUM
+  If func COMMANDE_VEROUILLEE([YYNV]SOHNUM)=1
+   WMESSAGE='Commande'-[YYNV]SOHNUM-'verrouillee'
+   Call ECR_TRACE(WMESSAGE,1) From GESECRAN
+   WRETVAL=0
+   [L]YERR=1
+   [L]YSOHNUM=[YYNV]SOHNUM
+  Endif
+  Endif
+Next
+If [L]YERR=1 : Goto FIN_VALIDE : Endif
+[L]YSOHNUM=""
+For [YYNV]
+  If [L]YSOHNUM<>[YYNV]SOHNUM
+  #generation du BL
+  [L]YNB=0
+  Call GENERE_BL([YYNV]NAVETTE,[YYNV]SOHNUM,[L]YNB)
+  #validation du bl
+  Read [F:YSOH]SOH0=[YYNV]SOHNUM
+  If [S]fstat=0 and [F:YSOH]LASDLVNUM<>"" and [L]YNB>0
+    Call ECR_TRACE("validation du bl"-[F:YSOH]LASDLVNUM,0) From GESECRAN
+    Read [F:YFCY]FCY0=[F:YSOH]STOFCY
+    GSERVEUR=1
+    Gosub INIT_TRTCFMDLV From FUNCFMDLV
+    [M:DIA]CPY=[F:YFCY]LEGCPY
+    [M:DIA]STOFCY=[F:YFCY]FCY
+    [M:DIA]SHIDAT=date$
+    [M:DIA]SDHNUMDEB=[F:YSOH]LASDLVNUM
+    [M:DIA]SDHNUMFIN=[F:YSOH]LASDLVNUM
+    [M:DIA]NDEFLG=2
+    Call AP_NDEFLG([M:DIA]NDEFLG) From FUNCFMDLV
+    #Call AS_NDEDEN([M:DIA]NDEDEN)From W1SCD1
+    [M:DIA]NDEDEN=[F:YAUS]PRTDEF(1)
+    Call AP_NDEDEN([M:DIA]NDEDEN) From FUNCFMDLV
+    Gosub CONTROLE_TRTCFMDLV From FUNCFMDLV
+    Gosub EXEC_TRTCFMDLV From FUNCFMDLV
+    Gosub TERMINE_TRTCFMDLV From FUNCFMDLV
+    If clalev([F:SD2]) : Close Local File [SD2] : Endif
+    GSERVEUR=0
+    Close Local Mask [M:DIA]
+    #
+    Read [F:YSDH]SDH0=[F:YSOH]LASDLVNUM
+    If [S]fstat=0 and [F:YSDH]CFMFLG<2
+        WMESSAGE="erreur lors de la validation du bl"-[F:YSOH]LASDLVNUM
+        Call ECR_TRACE(WMESSAGE,1) From GESECRAN
+        WRETVAL=0
+        Break
+    Endif
+#  Elsif [YSOH]ORDSTA<2
+#    WMESSAGE="Erreur lors de la génération du BL pour la commande"-[YYNV]SOHNUM
+#    Call ECR_TRACE(WMESSAGE,1) From GESECRAN
+#    WRETVAL=0
+#    Break
+  Endif
+  Read [F:YSOH]SOH0=[YYNV]SOHNUM
+  If ([S]fstat=0 and [F:YSOH]ORDSTA<2) or GERRTRACE<>0
+    [L]YSOLDE=0
+  Endif
+  [L]YSOHNUM=[YYNV]SOHNUM
+  Endif
+Next
+If GERRTRACE=0
+  Trbegin [YYNV2]
+  Update [YYNV2]  Where [YYNV2]NAVETTE=[L]NAVETTE With [YYNV2]VALFLG=2
+  If GWEBSERV=0 : [M:YNV0]VALFLG=2 : Endif
+  Commit
+Endif
+$FIN_VALIDE
+If [L]YOUVRE_TRACE=1
+  If GWEBSERV=0 : Call LEC_TRACE From LECFIC : Endif
+  Call FERME_TRACE From LECFIC
+Endif
+Close Local File [YYNV]
+Close Local File [YAUS]
+Close Local File [YYNV2]
+Close Local File [YSOH]
+Close Local File [YFCY]
+Close Local File [YSDH]
+End
+###############################################
+Funprog COMMANDE_VEROUILLEE(COMMANDE)
+Value Char COMMANDE
+Local Integer YLOCK
+Local File APLLCK[YALK] Where LCKSYM="SOH"+[L]COMMANDE
+If rowcount([YALK])
+YLOCK=1
+Endif
+Close Local File [YALK]
+End [L]YLOCK
+
+
+###############################################
+Subprog GENERE_BL(NAVETTE,COMMANDE,YNB)
+Value Char NAVETTE
+Value Char COMMANDE
+Variable Integer YNB
+Local Char YFICHIER_IMPORT(250)
+
+Local File YNAVETTE [YYNAV]
+Local File SORDER   [YSOH]
+Local File SORDERP  [YSOP]
+Local File STOCK    [YSTO]
+Local File STOALL   [YSTA]
+
+Link [YYNAV] With [F:YSOH]SOH0=[YYNAV]SOHNUM As [YYY]
+& Where [YYNAV]NAVETTE=[L]NAVETTE and [YYNAV]SOHNUM=[L]COMMANDE
+For [YYY]
+  Link [F:YSTA] With [F:YSTO]STO0=[F:YSTA]STOFCY;[F:YSTA]STOCOU As [YYS]
+& Where [F:YSTO]PALNUM=[YYNAV]PALNUM
+& and  [F:YSTA]VCRNUM=[YYNAV]SOHNUM
+  For [F:YYS]
+    If [L]YFICHIER_IMPORT=""
+      [L]YFICHIER_IMPORT="YSDHFL_"+format$("D:YYYYMMDD[_]hhmmss",date$)
+      Openo filpath("Import/DEF",[L]YFICHIER_IMPORT,"dat",""),0 Using [YIMP]
+      Iomode adxirs chr$(13)+chr$(10) Using [YIMP]
+      Iomode adxifs ";" Using [YIMP]
+# MQUI 23/12/2025 - BL en date du jour
+#      Wrseq "H";[F:YSOH]SALFCY;[F:YSOH]STOFCY;"";[F:YSOH]BPCORD;[F:YSOH]BPAADD;[F:YSOH]CUR;
+#& format$("YYYYMMDD",[F:YSOH]SHIDAT);format$("YYYYMMDD",[F:YSOH]DEMDLVDAT);1 Using [YIMP]
+#      Wrseq "H";[F:YSOH]SALFCY;[F:YSOH]STOFCY;"";[F:YSOH]BPCORD;[F:YSOH]BPAADD;[F:YSOH]CUR;
+#& format$("YYYYMMDD",date$);format$("YYYYMMDD",date$);1 Using [YIMP]
+      Wrseq "H";[F:YSOH]SALFCY;[F:YSOH]STOFCY;"";[F:YSOH]BPCORD;[F:YSOH]BPAADD;[F:YSOH]CUR;
+& format$("YYYYMMDD",date$);format$("YYYYMMDD",date$);1 Using [YIMP]
+    Endif
+    Read [F:YSOP]SOP0=[F:YSTA]VCRNUM;[F:YSTA]VCRLIN;[F:YSTA]VCRLIN
+    Wrseq "L";[F:YSTA]VCRNUM;[F:YSTA]VCRLIN;[F:YSTA]ITMREF;[F:YSOP]ITMDES;[F:YSOP]SAU;[F:YSTA]QTYSTU Using [YIMP]
+    Wrseq "S"; [F:YSTO]STA;[F:YSTO]PCU;[F:YSTO]QTYPCU;[F:YSTO]LPNNUM;[F:YSTO]LOC;[F:YSTO]LOT;[F:YSTO]SERNUM;[F:YSTO]PALNUM Using [YIMP]
+  Next
+Next
+If [L]YFICHIER_IMPORT<>""
+  Openo Using [YIMP]
+  Call IMPORTSIL("YSDH",filpath("Import/DEF",[L]YFICHIER_IMPORT,"dat","")) From GIMPOBJ
+  If [V]GERRTRACE=0
+  [L]YNB=1
+  Endif
+Endif
+Close Local File [YYNAV]
+Close Local File [YSOH]
+Close Local File [YSOP]
+Close Local File [YSTO]
+Close Local File [YSTA]
+End
+
+###############################################
+# MOUVEMENT_PALETTE : mouvement de stock d une palette entre quai et navette.
+# SENS = 1 : quai -> navette (destination NAVn)
+# SENS = 2 : navette -> quai (destination QUAIn, mouvement compensatoire :
+#            l import SCS committe sa propre transaction, pas de rollback)
+# Pattern valide par TEST_SCS_NAV : import objet SCS via IMPORTSIL.
+#  - fichier E/L/S : texte entre guillemets (FLDLIM du modele GESAOE),
+#    numeriques et date NUS (sans guillemets)
+#  - IPTDAT = AAMMJJ ; jamais right$/left$ (positionnels en L4G !), mid$ only
+#  - TRSFAM vide (famille table diverse 9, pas le flux TRA table 14)
+#  - L doit identifier le stock source : LOC + LOT + STA + PALNUM
+#  - verdict = relecture du STOCK ; GERRTRACE ne vaut rien dans ce dossier
+# WRETVAL : 1 = palette sur la destination (mouvement fait ou deja fait), 0 = echec
+###############################################
+Subprog MOUVEMENT_PALETTE(PALNUM,ITMREF,SENS,WRETVAL)
+Value Char PALNUM
+Value Char ITMREF
+Value Integer SENS
+Variable Integer WRETVAL
+Local Char YLOC(15),YLOCDES(15),YFCY(15),YNUM(10),YC(1),YFICH(250)
+Local Char YPCU(5),YSTA(3),YDATE(10),YLOT(20),YQ(1)
+Local Char YPREF(10)
+Local Decimal YQTY
+Local Integer YFOUND,YI,YGSER
+
+WRETVAL=0
+YQ=chr$(34)
+If SENS=2
+  YPREF="QUAI"
+Else
+  YPREF="NAV"
+Endif
+
+# 1) stock de la palette : emplacement source + site + qty + unite + statut + lot
+Local File STOCK [YSTO]
+For [F:YSTO] Where [F:YSTO]PALNUM=[L]PALNUM and [F:YSTO]ITMREF=[L]ITMREF
+  YLOC   = [F:YSTO]LOC
+  YFCY   = [F:YSTO]STOFCY
+  YQTY   = [F:YSTO]QTYSTU
+  YPCU   = [F:YSTO]PCU
+  YSTA   = [F:YSTO]STA
+  YLOT   = [F:YSTO]LOT
+  YFOUND = 1
+  Exitfor
+Next
+Close Local File [YSTO]
+If YFOUND=0
+  Call ECR_TRACE("Palette "+[L]PALNUM+" / article "+[L]ITMREF+" introuvable en stock",1) From GESECRAN
+  End
+Endif
+
+# deja au bon endroit : rien a faire (repick, double clic, reconciliation...)
+If mid$([L]YLOC,1,len([L]YPREF))=[L]YPREF
+  WRETVAL=1
+  End
+Endif
+
+# 2) destination : meme numero, prefixe oppose (QUAIn <-> NAVn)
+YNUM=""
+For YI=1 To len([L]YLOC)
+  YC=mid$([L]YLOC,YI,1)
+  If YC>="0" and YC<="9" : YNUM=YNUM+YC : Endif
+Next
+If YNUM=""
+  Call ECR_TRACE("Numero d emplacement non extrait de "+[L]YLOC,1) From GESECRAN
+  End
+Endif
+YLOCDES=[L]YPREF+YNUM
+
+# 3) fichier .dat au format du modele SCS (virgule + guillemets + CRLF)
+YDATE=mid$(format$("YYYYMMDD",date$),3,6)
+YFICH="YSCSNAV_"+format$("D:YYYYMMDD[_]hhmmss",date$)
+Openo filpath("Import/DEF",[L]YFICH,"dat",""),0 Using [YSCS]
+If fstat
+  Call ECR_TRACE("Ouverture fichier SCS impossible : "+filpath("Import/DEF",[L]YFICH,"dat",""),1) From GESECRAN
+  End
+Endif
+Iomode adxirs chr$(13)+chr$(10) Using [YSCS]
+Iomode adxifs "," Using [YSCS]
+# E : / ; VCRNUM(vide=auto) ; STOFCY ; IPTDAT(AAMMJJ nu) ; VCRDES ; PJT ; TRSFAM(vide)
+Wrseq YQ+"E"+YQ;YQ+""+YQ;YQ+[L]YFCY+YQ;[L]YDATE;YQ+""+YQ;YQ+""+YQ;YQ+""+YQ Using [YSCS]
+# L : / ; VCRLIN ; ITMREF ; PCU ; PCUSTUCOE ; STA ; LOCTYP ; LOC ; LOT ; SLO ;
+#     SERNUM ; PALNUM ; CTRNUM ; QLYCTLDEM ; OWNER
+Wrseq YQ+"L"+YQ;1000;YQ+[L]ITMREF+YQ;YQ+[L]YPCU+YQ;1;YQ+[L]YSTA+YQ;YQ+""+YQ;YQ+[L]YLOC+YQ;YQ+[L]YLOT+YQ;YQ+""+YQ;YQ+""+YQ;YQ+[L]PALNUM+YQ;YQ+""+YQ;YQ+""+YQ;YQ+""+YQ Using [YSCS]
+# S : / ; PCU ; QTYPCU ; QTYSTU ; LOC(destination) ; STA
+Wrseq YQ+"S"+YQ;YQ+[L]YPCU+YQ;[L]YQTY;[L]YQTY;YQ+[L]YLOCDES+YQ;YQ+[L]YSTA+YQ Using [YSCS]
+Openo Using [YSCS]
+
+# 4) import silencieux. La trace (ouverture/lecture/fermeture) est geree par
+#    l appelant (SYNC_NAV) : les messages du moteur y atterrissent.
+YGSER=GSERVEUR
+GSERVEUR=1
+Call IMPORTSIL("SCS",filpath("Import/DEF",[L]YFICH,"dat","")) From GIMPOBJ
+GSERVEUR=YGSER
+
+# 5) verdict par relecture du stock
+Local File STOCK [YSTO2]
+For [F:YSTO2] Where [F:YSTO2]PALNUM=[L]PALNUM and [F:YSTO2]ITMREF=[L]ITMREF
+  If [F:YSTO2]LOC=[L]YLOCDES : WRETVAL=1 : Endif
+Next
+Close Local File [YSTO2]
+
+If WRETVAL=1
+  Call ECR_TRACE("Mouvement realise : palette "+[L]PALNUM+" en "+[L]YLOCDES,0) From GESECRAN
+Else
+  Call ECR_TRACE("ECHEC mouvement palette "+[L]PALNUM+" : pas en "+[L]YLOCDES+", voir trace",1) From GESECRAN
+Endif
+End

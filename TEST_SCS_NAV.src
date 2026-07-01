@@ -1,0 +1,230 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+# TEST_SCS_NAV : test autonome - mouvement de stock quai -> navette pour 1 palette
+# Etape 3 : template SCS (Stock Change) + IMPORTSIL (pattern BI2ERP)
+#
+# TEMPLATE SCS (extrait GESAOE du dossier) :
+#  - Objet SCS / Fonction GESSCS / Script standard IMPSCSS
+#  - Sep champ "," / Delimiteur " / Sep enregistrement CRLF / Dates AAMMJJ
+#    (confirme par export GESAOE reel : OPTDAT=3, LIBDAT="AAMMJJ")
+#  - "Periode non definie" ELIMINE comme piste : meme erreur reproduite en SAISIE
+#    MANUELLE sur site AE1 avec la date du jour -> PUIS confirmee OK en manuel avec
+#    la date du jour (donc periode/site valides, pas un pb de calendrier).
+#    Le vrai coupable : le champ IPTDAT (et les autres) sont envoyes SANS les
+#    guillemets du Delimiteur de champ (FLDLIM='"') declare dans le modele -> le
+#    parseur CSV d'IMPSCSS lit "260701" comme un NOMBRE brut au lieu d'un texte
+#    date, d'ou la conversion foireuse (31/12/69, puis vide selon le format tente).
+#    Fix : chaque valeur texte est maintenant entouree de YQ (chr$(34)) et la ligne
+#    entiere est construite/ecrite en un seul Wrseq (plus de ";" -> adxifs desactive
+#    de fait, les virgules sont mises a la main dans YLINE).
+#  - Niveaux :
+#      E (SCHGH entete) : / ; VCRNUM ; STOFCY ; IPTDAT ; VCRDES ; PJT ; TRSFAM
+#      L (SCHGD ligne)  : / ; VCRLIN ; ITMREF ; PCU ; PCUSTUCOE ; STA ; LOCTYP ;
+#                          LOC ; LOT ; SLO ; SERNUM ; PALNUM ; CTRNUM ; QLYCTLDEM ; OWNER
+#      S (STOJOU mvt)   : / ; PCU ; QTYPCU ; QTYSTU ; LOC ; STA
+#
+# SEMANTIQUE LOC (cf. schema SCHGD : champs source vs champs ...DES destination) :
+#  - L.LOC  = emplacement SOURCE  (QUAIx, identification du stock via PALNUM)
+#  - S.LOC  = emplacement DESTINATION (NAVx, quantite POSITIVE)
+#  - X3 genere la contrepartie negative (source out) depuis L (identification palette)
+#
+# YLOCDES (navette) calcule depuis le numero du quai : QUAI3 -> NAV3
+######################################################################################
+Subprog TEST_SCS_NAV
+
+  # A RENSEIGNER
+  Local Char YITMREF(20)
+  Local Char YPALNUM(20)
+  Local Char YFLUX(10)
+
+  YITMREF = "11035404"
+  YPALNUM = "037013278000211041"
+  # TRSFAM = "famille de mouvement" controlee sur TABLE DIVERSE 9 -- PAS le code
+  # flux TRA de la table diverse 14 (erreur import : "Tables diverses : 9 TRA
+  # Fiche inexistante"). Champ optionnel en saisie manuelle -> vide.
+  # Si une famille est voulue : prendre un code existant de la table 9 (GESADI).
+  YFLUX   = ""
+
+  Local Char YLOC(15), YLOCDES(15), YFCY(15), YNUM(10), YC(1), YFICH(250)
+  Local Char YPCU(5), YSTA(3), YDATE(10), YLOT(20)
+  Local Char YQ(1)
+  Local Char YLINE(250), YDUMP(250)   # Char = 250 max en L4G (999 -> Erreur 50)
+  Local Date YCTLDAT
+  Local Decimal YQTY
+  Local Integer YFOUND, YI, YOUVRE_TRACE, YVCRLIN, YCOEF
+  YVCRLIN = 1000
+  YCOEF   = 1
+  YFOUND = 0
+  YQ = chr$(34)   # delimiteur de champ declare dans GESAOE (FLDLIM), jamais utilise jusqu ici
+
+  # 1) Lecture du stock de la palette -> emplacement source (quai) + qty + site + unite + statut
+  Local File STOCK [YSTO]
+  For [F:YSTO] Where [F:YSTO]PALNUM=[L]YPALNUM and [F:YSTO]ITMREF=[L]YITMREF
+    YLOC   = [F:YSTO]LOC
+    YFCY   = [F:YSTO]STOFCY
+    YQTY   = [F:YSTO]QTYSTU
+    YPCU   = [F:YSTO]PCU
+    YSTA   = [F:YSTO]STA
+    YLOT   = [F:YSTO]LOT
+    YFOUND = 1
+    Exitfor
+  Next
+  Close Local File [YSTO]  # forme verbeuse = portable, comme TEST_MVTNAV.src
+
+  If YFOUND = 0
+    Call ECR_TRACE("Palette "+[L]YPALNUM+" / article "+[L]YITMREF+" introuvable en stock",1) From GESECRAN
+    End
+  Endif
+
+  # 2) Destination calculee depuis le numero du quai : QUAI3 -> NAV3
+  YNUM = ""
+  For YI = 1 To len([L]YLOC)
+    YC = mid$([L]YLOC,YI,1)
+    If YC >= "0" and YC <= "9"
+      YNUM = YNUM + YC
+    Endif
+  Next
+  If YNUM = ""
+    Call ECR_TRACE("Numero de quai non extrait de "+[L]YLOC,1) From GESECRAN
+    End
+  Endif
+  YLOCDES = "NAV" + YNUM
+
+  Call ECR_TRACE([L]YLOC+" -> "+[L]YLOCDES+" (qty="+num$(YQTY)+" "+YPCU+", status="+YSTA+", site="+YFCY+")",0) From GESECRAN
+
+  # 3) Generation du fichier .dat au format SCS
+  #    Format : virgule + double-quote + CRLF
+  #    NB : format$() n'accepte pas de prefixe "D:"/"T:" (causerait Erreur 50).
+  #    AAMMJJ confirme par la config GESAOE reelle (OPTDAT=3).
+  # PIEGE right$ : en L4G right$(chaine,n) = sous-chaine A PARTIR DE la position n
+  # (pas "les n derniers caracteres") -> right$("20260701",6) = "701" !
+  # C est ce qui partait dans le fichier depuis le debut (prouve par dump ASCII).
+  # mid$(chaine,3,6) = "260701" = AAMMJJ correct.
+  YDATE = mid$(format$("YYYYMMDD", date$), 3, 6)
+
+  # --- TEST IPTDAT AVANT ENVOI ---------------------------------------------
+  # Reconstruit une Date depuis la chaine AAMMJJ qu on s apprete a ecrire et la
+  # compare a date$ : toute erreur de construction bloque AVANT l import.
+  # NB : uniquement mid$ (right$/left$ = positionnels en L4G, pieges).
+  # gdat$(jour, mois, annee)
+  YCTLDAT = gdat$(val(mid$([L]YDATE,5,2)), val(mid$([L]YDATE,3,2)), 2000+val(mid$([L]YDATE,1,2)))
+  Call ECR_TRACE("PRE-TEST IPTDAT : chaine=["+[L]YDATE+"] relue="+num$(day([L]YCTLDAT))+"/"+num$(month([L]YCTLDAT))+"/"+num$(year([L]YCTLDAT)),0) From GESECRAN
+  If [L]YCTLDAT <> date$
+    Call ECR_TRACE("PRE-TEST IPTDAT : ["+[L]YDATE+"] ne redonne pas la date du jour, abandon avant import",1) From GESECRAN
+    End
+  Endif
+  # ---------------------------------------------------------------------------
+
+  YFICH = "YSCSTEST_" + format$("YYYYMMDD", date$)
+  Openo filpath("Import/DEF", [L]YFICH, "dat", ""), 0 Using [YMVT]
+  If fstat
+    Call ECR_TRACE("Ouverture fichier SCS impossible : "+filpath("Import/DEF",[L]YFICH,"dat",""), 1) From GESECRAN
+    End
+  Endif
+  # adxirs = separateur d'enregistrement (CRLF) ajoute en fin de chaque Wrseq.
+  # adxifs = separateur de champ insere a chaque ";" entre les valeurs du Wrseq
+  # (pattern multi-arguments ";" = le seul prouve stable dans ce dossier, cf
+  # SPEYNV.src:279-280 et tous les tests precedents de ce script).
+  # Chaque valeur texte est en plus entouree de YQ (") pour respecter le
+  # Delimiteur de champ (FLDLIM='"') declare dans le modele GESAOE SCS.
+  Iomode adxirs chr$(13)+chr$(10) Using [YMVT]
+  Iomode adxifs "," Using [YMVT]
+
+  # Ligne E : / ; VCRNUM ; STOFCY ; IPTDAT ; VCRDES ; PJT ; TRSFAM
+  #           VCRNUM vide = numero auto genere par X3
+  #           7 colonnes = alignees sur le template SCS de GESAOE (ne pas toucher)
+  # RESULTAT TEST "IPTDAT vide" (trace F10601709 du 01/07/26) :
+  #   Zone IPTDAT ( / / ) -> le vide N EST PAS defaulte cote serveur, et la
+  #   valeur du fichier ATTEINT bien IPTDAT (vide -> ( / / ), "260701" -> 31/12/69).
+  #   Donc pas de decalage de colonne, pas de champ ignore : c est la CONVERSION
+  #   de la valeur qui echoue.
+  # TEST EN COURS : date NUE, SANS guillemets (argument brut du Wrseq), comme
+  #   les imports YSDH qui marchent dans SPEYNV.src:286-287 ou TOUTES les dates
+  #   sont ecrites nues via format$. Hypothese : le parseur ne strip pas FLDLIM
+  #   sur un champ Date -> "260701" avec guillemets = chaine invalide -> 31/12/69.
+  Wrseq YQ+"E"+YQ;YQ+""+YQ;YQ+[L]YFCY+YQ;[L]YDATE;YQ+""+YQ;YQ+""+YQ;YQ+[L]YFLUX+YQ Using [YMVT]
+
+  # Ligne L : / ; VCRLIN ; ITMREF ; PCU ; PCUSTUCOE ; STA ; LOCTYP ; LOC ;
+  #           LOT ; SLO ; SERNUM ; PALNUM ; CTRNUM ; QLYCTLDEM ; OWNER
+  #           VCRLIN/PCUSTUCOE numeriques -> pas de guillemets, passes bruts (Wrseq
+  #           convertit tout seul, comme dans la version d'origine qui marchait).
+  Wrseq YQ+"L"+YQ;[L]YVCRLIN;YQ+[L]YITMREF+YQ;YQ+[L]YPCU+YQ;[L]YCOEF;YQ+[L]YSTA+YQ;YQ+""+YQ;YQ+[L]YLOC+YQ;YQ+[L]YLOT+YQ;YQ+""+YQ;YQ+""+YQ;YQ+[L]YPALNUM+YQ;YQ+""+YQ;YQ+""+YQ;YQ+""+YQ Using [YMVT]
+
+  # Ligne S : / ; PCU ; QTYPCU ; QTYSTU ; LOC ; STA
+  #           QTYPCU/QTYSTU numeriques -> pas de guillemets.
+  Wrseq YQ+"S"+YQ;YQ+[L]YPCU+YQ;[L]YQTY;[L]YQTY;YQ+[L]YLOCDES+YQ;YQ+[L]YSTA+YQ Using [YMVT]
+
+  Openo Using [YMVT]
+
+  # --- CONTROLE FICHIER AVANT ENVOI ------------------------------------------
+  # Relit le .dat genere et trace chaque ligne brute + les codes caractere de
+  # la ligne E : on voit EXACTEMENT ce que le parseur IMPSCSS va recevoir
+  # (guillemets, separateurs, encodage) au lieu de le supposer.
+  Openi filpath("Import/DEF", [L]YFICH, "dat", ""), 0 Using [YCTL]
+  If fstat = 0
+    Rdseq YLINE Using [YCTL]
+    If fstat = 0
+      Call ECR_TRACE("FICHIER ligne E brute : ["+[L]YLINE+"]",0) From GESECRAN
+      # dump limite aux 60 premiers caracteres : 60 codes x 4 chars max = 240,
+      # tient dans YDUMP Char(250). La ligne E fait ~45 caracteres.
+      YDUMP = ""
+      For YI = 1 To min(len([L]YLINE), 60)
+        YDUMP = [L]YDUMP + num$(ascii(mid$([L]YLINE,YI,1))) + " "
+      Next
+      Call ECR_TRACE("FICHIER ligne E codes : "+[L]YDUMP,0) From GESECRAN
+    Endif
+    Rdseq YLINE Using [YCTL]
+    If fstat = 0 : Call ECR_TRACE("FICHIER ligne L brute : ["+[L]YLINE+"]",0) From GESECRAN : Endif
+    Rdseq YLINE Using [YCTL]
+    If fstat = 0 : Call ECR_TRACE("FICHIER ligne S brute : ["+[L]YLINE+"]",0) From GESECRAN : Endif
+    Openi Using [YCTL]
+  Else
+    Call ECR_TRACE("Relecture controle du fichier impossible (fstat="+num$(fstat)+")",1) From GESECRAN
+  Endif
+  # ---------------------------------------------------------------------------
+
+  # 4) Import SCS via IMPORTSIL.
+  #    On utilise GIMPOBJ (variable globale deja initialisee dans le dossier),
+  #    pas IMPOBJ (inexistant ici). IMPORTSIL pilote un modele d import d objet,
+  #    contrairement a LECFIC qui est pour les imports de donnees generiques.
+  #    Pattern trace repris de SPEYNV.src:150-153 / 233-236 (VALIDE_NAVETTE) :
+  #    OUVRE_TRACE/LEC_TRACE/FERME_TRACE From LECFIC affiche le VRAI message
+  #    du moteur d import (ex: "Stock inexistant"), contrairement a GERRTRACE
+  #    qui peut rester a 0 sans que ca prouve un succes reel.
+  YOUVRE_TRACE = 0
+  If GSERVEUR = 0
+    Call OUVRE_TRACE("Import SCS " + [L]YLOC + " -> " + [L]YLOCDES) From LECFIC
+    YOUVRE_TRACE = 1
+  Endif
+
+  [V]GERRTRACE = -1  # sentinelle : si toujours -1 apres l appel, IMPORTSIL n a pas rendu la main normalement
+  GSERVEUR = 1
+  Call IMPORTSIL("SCS", filpath("Import/DEF", [L]YFICH, "dat", "")) From GIMPOBJ
+  GSERVEUR = 0
+
+  If YOUVRE_TRACE = 1
+    If GWEBSERV = 0 : Call LEC_TRACE From LECFIC : Endif
+    Call FERME_TRACE From LECFIC
+  Endif
+
+  # 5) Verification REELLE : on relit le stock de la palette et on constate
+  #    l emplacement. [V]GERRTRACE est un menteur prouve dans ce dossier :
+  #    il reste a -1 (jamais ecrit par IMPORTSIL) meme quand le mouvement
+  #    reussit -> il ne sert plus que d info dans la trace, jamais de verdict.
+  YFOUND = 0
+  Local File STOCK [YSTO2]
+  For [F:YSTO2] Where [F:YSTO2]PALNUM=[L]YPALNUM and [F:YSTO2]ITMREF=[L]YITMREF
+    If [F:YSTO2]LOC = [L]YLOCDES
+      YFOUND = 1
+    Else
+      Call ECR_TRACE("Palette encore en " + [F:YSTO2]LOC, 0) From GESECRAN
+    Endif
+  Next
+  Close Local File [YSTO2]
+
+  If YFOUND = 1
+    Call ECR_TRACE("VERIFIE : mouvement SCS realise, palette en " + [L]YLOCDES + " (GERRTRACE=" + num$([V]GERRTRACE) + ", indicatif seulement)", 0) From GESECRAN
+  Else
+    Call ECR_TRACE("ECHEC VERIFIE : palette pas en " + [L]YLOCDES + " apres import, voir trace LEC_TRACE ci-dessus (GERRTRACE=" + num$([V]GERRTRACE) + ")", 1) From GESECRAN
+  Endif
+
+End

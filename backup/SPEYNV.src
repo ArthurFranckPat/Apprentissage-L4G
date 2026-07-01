@@ -1,0 +1,304 @@
+#ACL le 10/07/25 - 4145SKAR001 - gestion des navettes
+#MQUI 23/12/2025 - BL en date du jour
+######################################################################################
+$ACTION
+  Case ACTION
+    When "RAZCRE"    : Gosub RAZCRE
+    When "RAZDUP"    : Gosub RAZCRE
+    When "FILGAUCHE" : Gosub FILGAUCHE
+    When "PICKE"     : Gosub PICKE
+    When "DEPICK"    : Gosub DEPICK
+    When "FIN_PICK"  : Gosub FIN_PICK
+    When "VERIF_CRE" : Gosub VERIF_CRE
+    When "INICRE"    : Gosub INICRE
+    When "LIENS"     : Gosub LIENS
+    When "LIENS2"     : Gosub LIENS2
+    When "SETBOUT"   : Gosub SETBOUT
+    When "EXEBOUT"   : Gosub EXEBOUT
+    When "AP_FILGAUCHE" : Gosub AP_FILGAUCHE
+  Endcase
+Return
+###########################################
+$EXEBOUT
+  If BOUT="V"
+    Local Integer YREPONSE
+    Local Integer WRETVAL
+    Local Char WMESSAGE(250)
+    Call OUINON("Voulez-vous valider la navette ?",[L]YREPONSE) From GESECRAN
+    If [L]YREPONSE=2
+      Call VALIDE_NAVETTE([M:YNV0]NAVETTE,WRETVAL,WMESSAGE)
+    Endif
+  Endif
+Return
+###########################################
+$SETBOUT
+  If GREP<>"" or [M:YNV0]VALFLG=2
+    Call VIREBOUT(CHAINE,"VA") From GOBJET
+  Endif
+Return
+
+###########################################
+$LIENS
+  [M:YNV0]=[F:YNV]
+  Affzo [M:YNV0]
+  Grizo [M:YNV0]NAVETTE
+  If [M:YNV0]VALFLG=2
+    Grizo [M:YNV0]
+    Grizo [M:YNV1]
+  Endif
+Return
+
+###########################################
+$LIENS2
+  #affichage client
+  Local File SORDER [YSOH2]
+  For I=0 To [M:YNV1]NBYNV-1
+    Read [F:YSOH2]SOH0=[M:YNV1]SOHNUM(I)
+    If [S]fstat=0
+      [M:YNV1]BPCORD(I)=[F:YSOH2]BPCORD
+    Endif
+  Next
+  Close Local File [YSOH2]
+  Affzo [M:YNV1]
+Return
+
+###########################################
+$VERIF_CRE
+  Local Integer YRET
+  Call NUMERO('YNV',"",date$,"",[M:YNV0]NAVETTE,YRET) From SUBANM
+  Affzo [M:YNV0]NAVETTE
+  Actzo [M:YNV0]NAVETTE
+Return
+
+########################################################
+$INICRE
+ [F:YNV]=[M:YNV0]
+ [F:YNV]VALFLG=1
+ [F:YNV]DAT= [M:YNV0]DAT
+ [F:YNV]HOU= [M:YNV0]HOU
+Return
+
+########################################################
+$FILGAUCHE
+  If currbox='GAU_CHE1'
+    If [M:YNV0]VALFLG<2
+    FILGAUSUP='[F:STJ]PALNUM<>"" & [F:STJ]TRSTYP=5 and [F:SOH]DLVSTA=1'
+    Else
+    FILGAUSUP='1=2'
+    Endif
+  Endif
+Return
+########################################################
+$RAZCRE
+  Grizo [M:YNV0]NAVETTE
+Return
+########################################################
+$AP_FILGAUCHE
+  If currbox='GAU_CHE1'
+    For I=0 To [M:YNV1]NBYNV-1
+      For [F:STJ] Where [F:STJ]PALNUM=[M:YNV1]PALNUM(I)
+        Gosub REPICK From GSAISIE
+      Next
+    Next
+  Endif
+Return
+########################################################
+$PICKE
+  If currbox='GAU_CHE1'
+    For I=0 To [M:YNV1]NBYNV-1
+      If [M:YNV1]PALNUM(I)=[F:STJ]PALNUM
+        Call ECR_TRACE("palette déjà sélectionnée",0) From GESECRAN
+        OK=0
+        Return
+      Endif
+    Next
+    [M:YNV1]PALNUM([M:YNV1]NBYNV)=[F:STJ]PALNUM
+    [M:YNV1]SOHNUM([M:YNV1]NBYNV)=[F:SOH]SOHNUM
+    [M:YNV1]ITMREF([M:YNV1]NBYNV)=[F:STJ]ITMREF
+    [M:YNV1]QTY([M:YNV1]NBYNV)=[F:STJ]QTYSTU
+    [M:YNV1]NBYNV+=1
+  Endif
+Return
+########################################################
+$DEPICK
+  If currbox='GAU_CHE1'
+    Local Integer YNOL
+    For I=0 To [M:YNV1]NBYNV-1
+      If [M:YNV1]PALNUM(I)=[F:STJ]PALNUM
+        YNOL = I
+        Dela YNOL,1,[M:YNV1]NBYNV-1 [M:YNV1]NBYNV
+        [M:YNV1]NBYNV -= 1
+        I-=1
+      Endif
+    Next
+  Endif
+Return
+########################################################
+$FIN_PICK
+Affzo [M:YNV1]
+Return
+
+########################################################
+########################################################
+Subprog VALIDE_NAVETTE(NAVETTE,WRETVAL,WMESSAGE)
+Value Char NAVETTE
+Variable Integer WRETVAL
+Variable Char WMESSAGE
+Local Integer YOUVRE_TRACE,YERR,YNB
+Local Integer YSOLDE : YSOLDE=1
+Local Char YSOHNUM(250)
+If GSERVEUR=0
+  Call OUVRE_TRACE("Validation de la navette"-[L]NAVETTE) From LECFIC
+  [L]YOUVRE_TRACE=1
+Endif
+Local File YNAVETTE  [YYNV]
+Local File YNAVETTE  [YYNV2]
+Local File SORDER    [YSOH]
+Local File FACILITY  [YFCY]
+Local File SDELIVERY [YSDH]
+Local File AUTILIS   [YAUS]
+Read [F:YAUS]CODUSR=[V]GUSER
+Filter [YYNV] Where [YYNV]NAVETTE=[L]NAVETTE
+& Order By [YYNV]SOHNUM
+#tests verrou
+For [YYNV]
+  If [L]YSOHNUM<>[YYNV]SOHNUM
+  If func COMMANDE_VEROUILLEE([YYNV]SOHNUM)=1
+   WMESSAGE='Commande'-[YYNV]SOHNUM-'verrouillee'
+   Call ECR_TRACE(WMESSAGE,1) From GESECRAN
+   WRETVAL=0
+   [L]YERR=1
+   [L]YSOHNUM=[YYNV]SOHNUM
+  Endif
+  Endif
+Next
+If [L]YERR=1 : Goto FIN_VALIDE : Endif
+[L]YSOHNUM=""
+For [YYNV]
+  If [L]YSOHNUM<>[YYNV]SOHNUM
+  #generation du BL
+  [L]YNB=0
+  Call GENERE_BL([YYNV]NAVETTE,[YYNV]SOHNUM,[L]YNB)
+  #validation du bl
+  Read [F:YSOH]SOH0=[YYNV]SOHNUM
+  If [S]fstat=0 and [F:YSOH]LASDLVNUM<>"" and [L]YNB>0
+    Call ECR_TRACE("validation du bl"-[F:YSOH]LASDLVNUM,0) From GESECRAN
+    Read [F:YFCY]FCY0=[F:YSOH]STOFCY
+    GSERVEUR=1
+    Gosub INIT_TRTCFMDLV From FUNCFMDLV
+    [M:DIA]CPY=[F:YFCY]LEGCPY
+    [M:DIA]STOFCY=[F:YFCY]FCY
+    [M:DIA]SHIDAT=date$
+    [M:DIA]SDHNUMDEB=[F:YSOH]LASDLVNUM
+    [M:DIA]SDHNUMFIN=[F:YSOH]LASDLVNUM
+    [M:DIA]NDEFLG=2
+    Call AP_NDEFLG([M:DIA]NDEFLG) From FUNCFMDLV
+    #Call AS_NDEDEN([M:DIA]NDEDEN)From W1SCD1
+    [M:DIA]NDEDEN=[F:YAUS]PRTDEF(1)
+    Call AP_NDEDEN([M:DIA]NDEDEN) From FUNCFMDLV
+    Gosub CONTROLE_TRTCFMDLV From FUNCFMDLV
+    Gosub EXEC_TRTCFMDLV From FUNCFMDLV
+    Gosub TERMINE_TRTCFMDLV From FUNCFMDLV
+    If clalev([F:SD2]) : Close Local File [SD2] : Endif
+    GSERVEUR=0
+    Close Local Mask [M:DIA]
+    #
+    Read [F:YSDH]SDH0=[F:YSOH]LASDLVNUM
+    If [S]fstat=0 and [F:YSDH]CFMFLG<2
+        WMESSAGE="erreur lors de la validation du bl"-[F:YSOH]LASDLVNUM
+        Call ECR_TRACE(WMESSAGE,1) From GESECRAN
+        WRETVAL=0
+        Break
+    Endif
+#  Elsif [YSOH]ORDSTA<2
+#    WMESSAGE="Erreur lors de la génération du BL pour la commande"-[YYNV]SOHNUM
+#    Call ECR_TRACE(WMESSAGE,1) From GESECRAN
+#    WRETVAL=0
+#    Break
+  Endif
+  Read [F:YSOH]SOH0=[YYNV]SOHNUM
+  If ([S]fstat=0 and [F:YSOH]ORDSTA<2) or GERRTRACE<>0
+    [L]YSOLDE=0
+  Endif
+  [L]YSOHNUM=[YYNV]SOHNUM
+  Endif
+Next
+If GERRTRACE=0
+  Trbegin [YYNV2]
+  Update [YYNV2]  Where [YYNV2]NAVETTE=[L]NAVETTE With [YYNV2]VALFLG=2
+  If GWEBSERV=0 : [M:YNV0]VALFLG=2 : Endif
+  Commit
+Endif
+$FIN_VALIDE
+If [L]YOUVRE_TRACE=1
+  If GWEBSERV=0 : Call LEC_TRACE From LECFIC : Endif
+  Call FERME_TRACE From LECFIC
+Endif
+Close Local File [YYNV]
+Close Local File [YAUS]
+Close Local File [YYNV2]
+Close Local File [YSOH]
+Close Local File [YFCY]
+Close Local File [YSDH]
+End
+###############################################
+Funprog COMMANDE_VEROUILLEE(COMMANDE)
+Value Char COMMANDE
+Local Integer YLOCK
+Local File APLLCK[YALK] Where LCKSYM="SOH"+[L]COMMANDE
+If rowcount([YALK])
+YLOCK=1
+Endif
+Close Local File [YALK]
+End [L]YLOCK
+
+
+###############################################
+Subprog GENERE_BL(NAVETTE,COMMANDE,YNB)
+Value Char NAVETTE
+Value Char COMMANDE
+Variable Integer YNB
+Local Char YFICHIER_IMPORT(250)
+
+Local File YNAVETTE [YYNAV]
+Local File SORDER   [YSOH]
+Local File SORDERP  [YSOP]
+Local File STOCK    [YSTO]
+Local File STOALL   [YSTA]
+
+Link [YYNAV] With [F:YSOH]SOH0=[YYNAV]SOHNUM As [YYY]
+& Where [YYNAV]NAVETTE=[L]NAVETTE and [YYNAV]SOHNUM=[L]COMMANDE
+For [YYY]
+  Link [F:YSTA] With [F:YSTO]STO0=[F:YSTA]STOFCY;[F:YSTA]STOCOU As [YYS]
+& Where [F:YSTO]PALNUM=[YYNAV]PALNUM
+& and  [F:YSTA]VCRNUM=[YYNAV]SOHNUM
+  For [F:YYS]
+    If [L]YFICHIER_IMPORT=""
+      [L]YFICHIER_IMPORT="YSDHFL_"+format$("D:YYYYMMDD[_]hhmmss",date$)
+      Openo filpath("Import/DEF",[L]YFICHIER_IMPORT,"dat",""),0 Using [YIMP]
+      Iomode adxirs chr$(13)+chr$(10) Using [YIMP]
+      Iomode adxifs ";" Using [YIMP]
+#MQUI 23/12/2025 - BL en date du jour
+#      Wrseq "H";[F:YSOH]SALFCY;[F:YSOH]STOFCY;"";[F:YSOH]BPCORD;[F:YSOH]BPAADD;[F:YSOH]CUR;
+#& format$("YYYYMMDD",[F:YSOH]SHIDAT);format$("YYYYMMDD",[F:YSOH]DEMDLVDAT);1 Using [YIMP]
+      Wrseq "H";[F:YSOH]SALFCY;[F:YSOH]STOFCY;"";[F:YSOH]BPCORD;[F:YSOH]BPAADD;[F:YSOH]CUR;
+& format$("YYYYMMDD",date$);format$("YYYYMMDD",date$);1 Using [YIMP]
+    Endif
+    Read [F:YSOP]SOP0=[F:YSTA]VCRNUM;[F:YSTA]VCRLIN;[F:YSTA]VCRLIN
+    Wrseq "L";[F:YSTA]VCRNUM;[F:YSTA]VCRLIN;[F:YSTA]ITMREF;[F:YSOP]ITMDES;[F:YSOP]SAU;[F:YSTA]QTYSTU Using [YIMP]
+    Wrseq "S"; [F:YSTO]STA;[F:YSTO]PCU;[F:YSTO]QTYPCU;[F:YSTO]LPNNUM;[F:YSTO]LOC;[F:YSTO]LOT;[F:YSTO]SERNUM;[F:YSTO]PALNUM Using [YIMP]
+  Next
+Next
+If [L]YFICHIER_IMPORT<>""
+  Openo Using [YIMP]
+  Call IMPORTSIL("YSDH",filpath("Import/DEF",[L]YFICHIER_IMPORT,"dat","")) From GIMPOBJ
+  If [V]GERRTRACE=0
+  [L]YNB=1
+  Endif
+Endif
+Close Local File [YYNAV]
+Close Local File [YSOH]
+Close Local File [YSOP]
+Close Local File [YSTO]
+Close Local File [YSTA]
+End
