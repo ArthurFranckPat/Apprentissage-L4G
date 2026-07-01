@@ -177,7 +177,7 @@ Return
 # Les palettes a redescendre sont collectees AVANT de bouger (on ne modifie
 # pas STOCK pendant qu on le parcourt).
 $SYNC_NAV
-  Local Integer YRETA, YREF, YNBR, YNBTOT, YOK2
+  Local Integer YRETA, YREF, YNBR, YNBTOT, YOK2, YERRS
   Local Char YITM(20)
   Local Char YRPAL(20)(0..99)
   Local Char YRITM(20)(0..99)
@@ -187,19 +187,17 @@ $SYNC_NAV
   # numero de navette : masque si encore affiche, sinon buffer fichier
   # (a APRES_MOD/APRES_CRE le masque peut deja etre vide)
   Local Char YNAV(20)
-  Local Char YREFNAV(20)
   Local Integer YTRC
   YNAV=[M:YNV0]NAVETTE
   If YNAV="" : YNAV=[F:YNV]NAVETTE : Endif
 
-  # tout le diagnostic part dans UNE fenetre de trace (pas de popups OK) ;
-  # les messages du moteur d import y atterrissent aussi.
+  # trace ouverte pour capter les messages du moteur d import ; la fenetre
+  # n est affichee QU EN CAS D ECHEC d un mouvement (sinon silencieux).
   YTRC=0
   If GSERVEUR=0
     Call OUVRE_TRACE("Sync stock navette "+YNAV) From LECFIC
     YTRC=1
   Endif
-  Call ECR_TRACE("SYNC evt="+ACTION+" navette=["+YNAV+"]",0) From GESECRAN
 
   # 1) palettes de la navette courante -> navette
   #    (article relu depuis STOCK : ITMREF pas garanti present dans YNAVETTE)
@@ -208,10 +206,9 @@ $SYNC_NAV
     For [F:YSTOS] Where [F:YSTOS]PALNUM=[F:YNVA]PALNUM
       If YITM="" : YITM=[F:YSTOS]ITMREF : Endif
     Next
-    Call ECR_TRACE("SYNC rec pal="+[F:YNVA]PALNUM+" itm="+YITM+" valflg="+num$([F:YNVA]VALFLG),0) From GESECRAN
     If YITM<>""
       Call MOUVEMENT_PALETTE([F:YNVA]PALNUM,YITM,1,YRETA)
-      Call ECR_TRACE("SYNC mov1 pal="+[F:YNVA]PALNUM+" ret="+num$(YRETA),0) From GESECRAN
+      If YRETA=0 : YERRS=1 : Endif
     Endif
   Next
 
@@ -221,12 +218,9 @@ $SYNC_NAV
   For [F:YSTOS] Where [F:YSTOS]LOC>="NAV" and [F:YSTOS]LOC<"NAW" and [F:YSTOS]PALNUM<>""
     YNBTOT+=1
     YREF=0
-    YREFNAV=""
     For [F:YNVA] Where [F:YNVA]PALNUM=[F:YSTOS]PALNUM and [F:YNVA]VALFLG<2
       YREF=1
-      If YREFNAV="" : YREFNAV=[F:YNVA]NAVETTE : Endif
     Next
-    Call ECR_TRACE("SYNC nav pal="+[F:YSTOS]PALNUM+" loc="+[F:YSTOS]LOC+" ref="+num$(YREF)+" par=["+YREFNAV+"]",0) From GESECRAN
     If YREF=0 and YNBR<100
       YRPAL(YNBR)=[F:YSTOS]PALNUM
       YRITM(YNBR)=[F:YSTOS]ITMREF
@@ -239,17 +233,14 @@ $SYNC_NAV
   For I=0 To YNBR-1
     Call MOUVEMENT_PALETTE(YRPAL(I),YRITM(I),2,YRETA)
     YOK2+=YRETA
-    Call ECR_TRACE("SYNC mov2 pal="+YRPAL(I)+" ret="+num$(YRETA),0) From GESECRAN
   Next
+  If YOK2<YNBR : YERRS=1 : Endif
 
-  # BILAN une ligne : vues = palettes trouvees sur NAV* ; orphelines = plus
-  # dans aucune navette active (a redescendre) ; retours_ok = reussis.
-  # vues>0 orphelines=0 -> lignes YNAVETTE pas supprimees a l enregistrement
-  # orphelines>0 retours_ok=0 -> retour refuse par le moteur (voir trace)
-  Call ECR_TRACE("SYNC bilan vues="+num$(YNBTOT)+" orphelines="+num$(YNBR)+" retours_ok="+num$(YOK2),0) From GESECRAN
-
+  # bilan dans le fichier de trace (consultable a posteriori) ; fenetre
+  # affichee uniquement si un mouvement a echoue
+  Call ECR_TRACE("Sync navette "+YNAV+" : vues="+num$(YNBTOT)+" orphelines="+num$(YNBR)+" retours_ok="+num$(YOK2),0) From GESECRAN
   If YTRC=1
-    If GWEBSERV=0 : Call LEC_TRACE From LECFIC : Endif
+    If GWEBSERV=0 and YERRS=1 : Call LEC_TRACE From LECFIC : Endif
     Call FERME_TRACE From LECFIC
   Endif
 
