@@ -15,6 +15,9 @@
 #    ici car vide tant que le BL n est pas valide
 #  - fenetre de trace affichee uniquement en cas d echec (YERR=1), le fichier
 #    de trace reste complet et consultable a posteriori
+#ABLEDOU (Resp Supply AERECO) le 02/07/26 - bouton Bordereau (BOUT="I") : impression du
+#  bordereau recapitulatif de la navette via l etat standard YNAVBL (GESARP),
+#  parametres navdeb/navfin, Call ETAT From AIMP3 - voir ETAT_YNAVBL.md
 ######################################################################################
 $ACTION
   Case ACTION
@@ -51,6 +54,19 @@ $EXEBOUT
     If [L]YREPONSE=2
       Call VALIDE_NAVETTE([M:YNV0]NAVETTE,WRETVAL,WMESSAGE)
     Endif
+  Endif
+  If BOUT="I"
+    # bordereau recapitulatif : etat YNAVBL (GESARP) borne sur la navette
+    # courante ; destination vide = choix/defaut standard GESADI de l utilisateur
+    Local Char YIPAR(15)(1..2)
+    Local Char YIVAL(30)(1..2)
+    If [M:YNV0]NAVETTE=""
+      Call ECR_TRACE("Aucune navette affichee, impression impossible",1) From GESECRAN
+      Return
+    Endif
+    YIPAR(1)="navdeb" : YIVAL(1)=[M:YNV0]NAVETTE
+    YIPAR(2)="navfin" : YIVAL(2)=[M:YNV0]NAVETTE
+    Call ETAT("YNAVBL","","",0,"",YIPAR,YIVAL) From AIMP3
   Endif
 Return
 ###########################################
