@@ -1,5 +1,20 @@
 #<AdxTL>@(#)0.0.0.0 $Revision$
 #ACL le 10/07/25 - 4145SKAR001 - gestion des navettes
+#ABLEDOU (Resp Supply AERECO) le 01/07/26 - mouvements de stock quai<->navette a l enregistrement :
+#  SYNC_NAV (APRES_CRE/APRES_MOD/AP_ANNULE) + MOUVEMENT_PALETTE (import SCS via
+#  IMPORTSIL, verdict par relecture du STOCK) ; garde anti double-pick ($PICKE) ;
+#  controle compteur navette ($VERIF_CRE)
+#ABLEDOU (Resp Supply AERECO) le 02/07/26 - validation navette robuste aux erreurs non bloquantes en
+#  trace (ex. specifique CALCULER_TARIF_TRANSPORT_BL / A_SDHNUM sur creation BL) :
+#  - GENERE_BL : verdict par relecture de SORDER.LASDLVNUM avant/apres import
+#    (YNB : 1=nouveau BL, 0=rien a generer, -1=echec), GERRTRACE abandonne
+#  - VALIDE_NAVETTE : validation FUNCFMDLV limitee aux BL generes par la navette
+#    (YNB=1 ou func BL_NAVETTE), echecs via flag YERR, gate final If YERR=0
+#  - BL_NAVETTE : reconnait le BL d un run precedent echoue par ses ALLOCATIONS
+#    (STOALL VCRNUM=BL -> STOCK -> PALNUM de la navette) ; STOJOU inutilisable
+#    ici car vide tant que le BL n est pas valide
+#  - fenetre de trace affichee uniquement en cas d echec (YERR=1), le fichier
+#    de trace reste complet et consultable a posteriori
 ######################################################################################
 $ACTION
   Case ACTION
@@ -259,7 +274,6 @@ Value Char NAVETTE
 Variable Integer WRETVAL
 Variable Char WMESSAGE
 Local Integer YOUVRE_TRACE,YERR,YNB
-Local Integer YSOLDE : YSOLDE=1
 Local Char YSOHNUM(250)
 If GSERVEUR=0
   Call OUVRE_TRACE("Validation de la navette"-[L]NAVETTE) From LECFIC
@@ -290,12 +304,24 @@ If [L]YERR=1 : Goto FIN_VALIDE : Endif
 [L]YSOHNUM=""
 For [YYNV]
   If [L]YSOHNUM<>[YYNV]SOHNUM
-  #generation du BL
+  #generation du BL (YNB : 1=nouveau BL, 0=rien a generer, -1=echec import)
   [L]YNB=0
   Call GENERE_BL([YYNV]NAVETTE,[YYNV]SOHNUM,[L]YNB)
-  #validation du bl
+  If [L]YNB=-1
+    WMESSAGE="Echec de la generation du BL pour la commande"-[YYNV]SOHNUM
+    Call ECR_TRACE(WMESSAGE,1) From GESECRAN
+    WRETVAL=0
+    [L]YERR=1
+    Break
+  Endif
+  #validation du bl : UNIQUEMENT un BL genere par la navette - soit celui que
+  #GENERE_BL vient de creer (YNB=1), soit un BL d un run precedent echoue,
+  #reconnu par ses palettes dans le journal de stock (func BL_NAVETTE).
+  #Un BL cree hors navette (livraison manuelle...) n est jamais valide ici.
   Read [F:YSOH]SOH0=[YYNV]SOHNUM
-  If [S]fstat=0 and [F:YSOH]LASDLVNUM<>"" and [L]YNB>0
+  If [S]fstat=0 and [F:YSOH]LASDLVNUM<>""
+  Read [F:YSDH]SDH0=[F:YSOH]LASDLVNUM
+  If [S]fstat=0 and [F:YSDH]CFMFLG<2 and ([L]YNB=1 or func BL_NAVETTE([YYNV]NAVETTE,[YYNV]SOHNUM,[F:YSOH]LASDLVNUM)=1)
     Call ECR_TRACE("validation du bl"-[F:YSOH]LASDLVNUM,0) From GESECRAN
     Read [F:YFCY]FCY0=[F:YSOH]STOFCY
     GSERVEUR=1
@@ -317,27 +343,25 @@ For [YYNV]
     GSERVEUR=0
     Close Local Mask [M:DIA]
     #
+    # relecture impossible (fstat<>0) = echec aussi : ne jamais conclure au
+    # succes sans avoir VU le BL valide
     Read [F:YSDH]SDH0=[F:YSOH]LASDLVNUM
-    If [S]fstat=0 and [F:YSDH]CFMFLG<2
+    If [S]fstat<>0 or [F:YSDH]CFMFLG<2
         WMESSAGE="erreur lors de la validation du bl"-[F:YSOH]LASDLVNUM
         Call ECR_TRACE(WMESSAGE,1) From GESECRAN
         WRETVAL=0
+        [L]YERR=1
         Break
     Endif
-#  Elsif [YSOH]ORDSTA<2
-#    WMESSAGE="Erreur lors de la génération du BL pour la commande"-[YYNV]SOHNUM
-#    Call ECR_TRACE(WMESSAGE,1) From GESECRAN
-#    WRETVAL=0
-#    Break
   Endif
-  Read [F:YSOH]SOH0=[YYNV]SOHNUM
-  If ([S]fstat=0 and [F:YSOH]ORDSTA<2) or GERRTRACE<>0
-    [L]YSOLDE=0
   Endif
   [L]YSOHNUM=[YYNV]SOHNUM
   Endif
 Next
-If GERRTRACE=0
+# navette validee ssi aucun echec constate par relecture (BL cree + BL valide) ;
+# GERRTRACE volontairement ignore : non fiable sur ce dossier, et pollue par
+# des erreurs non bloquantes de specifiques tiers (ex. CALCULER_TARIF_TRANSPORT_BL)
+If [L]YERR=0
   Trbegin [YYNV2]
   Update [YYNV2]  Where [YYNV2]NAVETTE=[L]NAVETTE With [YYNV2]VALFLG=2
   If GWEBSERV=0 : [M:YNV0]VALFLG=2 : Endif
@@ -345,7 +369,11 @@ If GERRTRACE=0
 Endif
 $FIN_VALIDE
 If [L]YOUVRE_TRACE=1
-  If GWEBSERV=0 : Call LEC_TRACE From LECFIC : Endif
+  # fenetre de trace UNIQUEMENT en cas d echec (meme pattern que SYNC_NAV) :
+  # une validation reussie n affiche plus les erreurs cosmetiques des
+  # specifiques tiers (ex. CALCULER_TARIF_TRANSPORT_BL) ; tout reste
+  # consultable a posteriori dans le fichier de trace
+  If GWEBSERV=0 and [L]YERR=1 : Call LEC_TRACE From LECFIC : Endif
   Call FERME_TRACE From LECFIC
 Endif
 Close Local File [YYNV]
@@ -366,6 +394,38 @@ Endif
 Close Local File [YALK]
 End [L]YLOCK
 
+###############################################
+# BL_NAVETTE : ce BL a-t-il ete genere par la navette ?
+# Preuve par les ALLOCATIONS : un BL cree mais NON valide n a encore aucun
+# mouvement de stock (STOJOU vide pour lui), mais ses allocations (STOALL,
+# VCRNUM=BL) pointent les lignes de STOCK des palettes livrees. Si l une
+# d elles est une palette de la navette pour cette commande -> BL navette.
+# Un BL cree hors navette n alloue pas ces palettes.
+# (meme chemin STOALL->STOCK via STOCOU que le Link de GENERE_BL)
+###############################################
+Funprog BL_NAVETTE(NAVETTE,COMMANDE,BLNUM)
+Value Char NAVETTE
+Value Char COMMANDE
+Value Char BLNUM
+Local Integer YOUI
+Local File YNAVETTE [YNVB]
+Local File STOALL   [YSTB]
+Local File STOCK    [YSTC]
+For [F:YSTB] Where [F:YSTB]VCRNUM=[L]BLNUM
+  If YOUI=0
+    Read [F:YSTC]STO0=[F:YSTB]STOFCY;[F:YSTB]STOCOU
+    If [S]fstat=0 and [F:YSTC]PALNUM<>""
+      For [F:YNVB] Where [F:YNVB]NAVETTE=[L]NAVETTE and [F:YNVB]SOHNUM=[L]COMMANDE and [F:YNVB]PALNUM=[F:YSTC]PALNUM
+        YOUI=1
+      Next
+    Endif
+  Endif
+Next
+Close Local File [YNVB]
+Close Local File [YSTB]
+Close Local File [YSTC]
+End [L]YOUI
+
 
 ###############################################
 Subprog GENERE_BL(NAVETTE,COMMANDE,YNB)
@@ -373,12 +433,21 @@ Value Char NAVETTE
 Value Char COMMANDE
 Variable Integer YNB
 Local Char YFICHIER_IMPORT(250)
+Local Char YBLAVANT(30)
 
 Local File YNAVETTE [YYNAV]
 Local File SORDER   [YSOH]
 Local File SORDERP  [YSOP]
 Local File STOCK    [YSTO]
 Local File STOALL   [YSTA]
+
+# dernier BL connu AVANT import : le verdict de creation sera la relecture
+# de LASDLVNUM apres import (GERRTRACE non fiable sur ce dossier, et une
+# erreur non bloquante en trace - ex. calcul tarif transport - ne doit pas
+# faire passer une creation reussie pour un echec)
+YBLAVANT=""
+Read [F:YSOH]SOH0=[L]COMMANDE
+If [S]fstat=0 : YBLAVANT=[F:YSOH]LASDLVNUM : Endif
 
 Link [YYNAV] With [F:YSOH]SOH0=[YYNAV]SOHNUM As [YYY]
 & Where [YYNAV]NAVETTE=[L]NAVETTE and [YYNAV]SOHNUM=[L]COMMANDE
@@ -408,8 +477,13 @@ Next
 If [L]YFICHIER_IMPORT<>""
   Openo Using [YIMP]
   Call IMPORTSIL("YSDH",filpath("Import/DEF",[L]YFICHIER_IMPORT,"dat","")) From GIMPOBJ
-  If [V]GERRTRACE=0
-  [L]YNB=1
+  # verdict par relecture : un nouveau BL est-il apparu sur la commande ?
+  # YNB : 1 = nouveau BL cree, -1 = fichier importe mais aucun BL (vrai echec)
+  Read [F:YSOH]SOH0=[L]COMMANDE
+  If [S]fstat=0 and [F:YSOH]LASDLVNUM<>"" and [F:YSOH]LASDLVNUM<>[L]YBLAVANT
+    [L]YNB=1
+  Else
+    [L]YNB=-1
   Endif
 Endif
 Close Local File [YYNAV]
