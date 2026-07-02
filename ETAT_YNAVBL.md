@@ -50,9 +50,12 @@ Maquette :
   (`DistinctCount({YNAVETTE.PALNUM_0})`), zone signature chauffeur/quai.
 - Groupe optionnel par commande (`SOHNUM_0`) pour lisibilité côté quai.
 
-Déposer le `.rpt` sous `<dossier>/PRT/` du serveur d'édition, puis valider
-l'état dans l'éditeur (cache du `.rpt` compilé, sinon l'ancienne maquette
-continue de sortir).
+Emplacement des `.rpt` (vérifié via la table `AVOLUME`, volume `REPORT` relatif
+au dossier) : `<racine solution>\dossiers\<DOSSIER>\REPORT\` — standards sous
+`dossiers\X3\REPORT\` (dont `BONLIV.rpt`, bon point de départ à copier/renommer),
+spécifiques sous `dossiers\CLTEST\REPORT\`. Déposer `YNAVBL.rpt` dans ce dernier,
+puis valider l'état (cache du `.rpt` compilé, sinon l'ancienne maquette continue
+de sortir).
 
 ### 2. Dictionnaire des états (`GESARP`)
 
